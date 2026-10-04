@@ -207,7 +207,7 @@ export function FilesView() {
           />
         }
       >
-        Files these accounts have shared with Orbitdesk, and files it created. It does not see the rest of your Drive.
+        Search Drive files across the accounts you selected. File access and editing depend on the permissions granted by each account.
       </ViewHeader>
 
       <div className="filebar">

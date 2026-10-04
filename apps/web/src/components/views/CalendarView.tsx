@@ -483,13 +483,13 @@ export function CalendarView() {
       {finding && (
         <SlotFinder
           onClose={() => setFinding(false)}
-          onPick={(slot) => {
+          onPick={(slot, availabilityCalendarIds) => {
             const start = parseDate(slot.start);
             const end = parseDate(slot.end);
             if (!start || !end) return;
             setFinding(false);
             setAnchor(start);
-            openNew({ start, end });
+            openNew({ start, end, availabilityCalendarIds });
           }}
         />
       )}

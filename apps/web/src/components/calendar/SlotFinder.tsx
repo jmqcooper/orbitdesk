@@ -16,7 +16,7 @@ const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
  * Asks the server for live free/busy across the chosen calendars. Slots are
  * the server's answer; when a calendar could not be read the result says so.
  */
-export function SlotFinder({ onClose, onPick }: { onClose: () => void; onPick: (slot: TimeSlot) => void }) {
+export function SlotFinder({ onClose, onPick }: { onClose: () => void; onPick: (slot: TimeSlot, calendarIds: Id[]) => void }) {
   const { boot, account } = useApp();
   const settings = boot.settings;
   const [duration, setDuration] = useState(
@@ -211,7 +211,7 @@ export function SlotFinder({ onClose, onPick }: { onClose: () => void; onPick: (
                             const end = parseDate(slot.end);
                             if (!start || !end) return null;
                             return (
-                              <button key={slot.start} type="button" className="slotchip" onClick={() => onPick(slot)}>
+                              <button key={slot.start} type="button" className="slotchip" onClick={() => onPick(slot, result.calendarIds)}>
                                 {clockTime(start)} – {clockTime(end)}
                               </button>
                             );
@@ -226,7 +226,7 @@ export function SlotFinder({ onClose, onPick }: { onClose: () => void; onPick: (
                 Checked {format(parseDate(result.checkedAt) ?? new Date(), 'h:mm:ss a')} against {result.calendarIds.length}{' '}
                 {result.calendarIds.length === 1 ? 'calendar' : 'calendars'} · {result.busy.length} busy{' '}
                 {result.busy.length === 1 ? 'block' : 'blocks'} · times in your browser’s zone. Choosing a slot opens a new
-                event; availability is checked again when it is created.
+                event; availability is checked again before booking. Time is not reserved until the event is saved.
               </p>
             </>
           )}

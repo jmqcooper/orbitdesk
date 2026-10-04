@@ -41,6 +41,7 @@ export interface EventSeed {
   description?: string;
   attendees?: Address[];
   calendarId?: Id;
+  availabilityCalendarIds?: Id[];
 }
 
 type RepeatChoice = 'none' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly' | 'keep';
@@ -584,6 +585,19 @@ function EventForm({
         if (repeat !== 'keep' && (!recurringExisting || scope === 'series')) body.recurrence = recurrenceFor(repeat, startInstant);
         saved = await api.updateEvent(event.id, body);
       } else {
+        if (seed?.availabilityCalendarIds?.length && !allDay) {
+          const check = await api.availability({
+            timeMin: start,
+            timeMax: end,
+            durationMinutes: (Date.parse(end) - Date.parse(start)) / 60000,
+            calendarIds: seed.availabilityCalendarIds,
+            withinWorkingHours: false,
+            limit: 1,
+          });
+          if (!check.complete || !check.slots.some(slot => Date.parse(slot.start) === Date.parse(start))) {
+            throw new ApiRequestError('conflict', 'This time is no longer confirmed free across the selected calendars. Check availability again.', 409, '');
+          }
+        }
         const body: EventCreateRequest = { ...shared, calendarId, recurrence: recurrenceFor(repeat, startInstant) };
         saved = await api.createEvent(body);
       }

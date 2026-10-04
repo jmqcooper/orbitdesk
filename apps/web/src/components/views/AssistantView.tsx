@@ -24,7 +24,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { needsAttention } from '@/lib/accounts';
 import { api, ApiRequestError, isAbort, toApiError } from '@/lib/api';
 import { parseDate, plural, relativeTime, safeHref } from '@/lib/format';
-import { invalidate, routePath, useMediaQuery, useResource } from '@/lib/hooks';
+import { invalidate, routePath, useResource } from '@/lib/hooks';
 import type { Action, AgentMessage, Id, SourceRef } from '@/lib/types';
 import { ActionCard } from '../actions/ActionCard';
 import { AccountBadge, AccountDot, useApp } from '../AppContext';
@@ -73,33 +73,6 @@ interface Turn {
   accountIds: Id[];
   context: SourceRef[];
   startedAt: number;
-}
-
-/**
- * Reveals already-received text a few characters at a time once `started`.
- * Purely presentational: the full reply is in hand before the first character shows.
- */
-function useTypewriter(text: string, animate: boolean, started: boolean, onDone: () => void): string {
-  const [shown, setShown] = useState(animate ? 0 : text.length);
-  const doneRef = useRef(onDone);
-  useEffect(() => {
-    doneRef.current = onDone;
-  });
-  useEffect(() => {
-    if (!animate || !started) return;
-    const step = Math.max(2, Math.ceil(text.length / 80));
-    let count = 0;
-    const timer = setInterval(() => {
-      count = Math.min(text.length, count + step);
-      setShown(count);
-      if (count >= text.length) {
-        clearInterval(timer);
-        doneRef.current();
-      }
-    }, 22);
-    return () => clearInterval(timer);
-  }, [text, animate, started]);
-  return animate ? text.slice(0, shown) : text;
 }
 
 function SourceLink({ source, index }: { source: SourceRef; index: number }) {
@@ -173,31 +146,13 @@ function SourceLink({ source, index }: { source: SourceRef; index: number }) {
 
 function AssistantReply({
   message,
-  animate,
   onActionChange,
-  onRevealed,
 }: {
   message: AgentMessage;
-  animate: boolean;
   onActionChange: (action: Action) => void;
-  onRevealed: () => void;
 }) {
   const { account } = useApp();
   const toolCount = message.tools.length;
-  const [toolsShown, setToolsShown] = useState(animate ? 0 : toolCount);
-  const [textDone, setTextDone] = useState(!animate);
-  const toolsDone = toolsShown >= toolCount;
-
-  useEffect(() => {
-    if (!animate || toolsDone) return;
-    const timer = setTimeout(() => setToolsShown((n) => n + 1), 260);
-    return () => clearTimeout(timer);
-  }, [animate, toolsDone, toolsShown]);
-
-  const text = useTypewriter(message.text, animate, toolsDone, () => {
-    setTextDone(true);
-    onRevealed();
-  });
   const totalMs = message.tools.reduce((sum, tool) => sum + (tool.durationMs ?? 0), 0);
   const failedTools = message.tools.filter((tool) => tool.status === 'error').length;
 
@@ -211,7 +166,7 @@ function AssistantReply({
       </header>
 
       {toolCount > 0 && (
-        <details className="trace" open={animate || failedTools > 0}>
+        <details className="trace" open={failedTools > 0}>
           <summary>
             <Wrench size={13} aria-hidden="true" />
             <span>
@@ -221,7 +176,7 @@ function AssistantReply({
             </span>
           </summary>
           <ol className="trace__list">
-            {message.tools.slice(0, toolsShown).map((tool) => (
+            {message.tools.map((tool) => (
               <li key={tool.id} className={clsx('trace__item', tool.status === 'error' && 'trace__item--error')}>
                 {tool.status === 'ok' ? <CircleCheck size={14} aria-label="Succeeded" /> : <CircleX size={14} aria-label="Failed" />}
                 <span className="trace__body">
@@ -243,13 +198,11 @@ function AssistantReply({
         </details>
       )}
 
-      {toolsDone && (
-        <div className={clsx('turn__text', animate && !textDone && 'is-typing')}>
-          {text ? <Markdown text={text} /> : textDone && <p className="turn__empty">The assistant returned no text.</p>}
-        </div>
-      )}
+      <div className="turn__text">
+        {message.text ? <Markdown text={message.text} /> : <p className="turn__empty">The assistant returned no text.</p>}
+      </div>
 
-      {textDone && message.sources.length > 0 && (
+      {message.sources.length > 0 && (
         <section className="sources" aria-label="Sources">
           <h3 className="sources__title">Sources</h3>
           <ol className="sources__list">
@@ -260,7 +213,7 @@ function AssistantReply({
         </section>
       )}
 
-      {textDone && message.actions.length > 0 && (
+      {message.actions.length > 0 && (
         <section className="turn__actions" aria-label="Proposed actions">
           <h3 className="sources__title">
             {message.actions.length === 1 ? 'Proposed action' : `${message.actions.length} proposed actions`} — nothing happens until you
@@ -317,7 +270,6 @@ function Working({ turn, onStop }: { turn: Turn; onStop: () => void }) {
 export function AssistantView({ conversationId }: { conversationId?: string }) {
   const { boot, scope, navigate, assistantSeed, setAssistantSeed, refreshBoot } = useApp();
   const agent = boot.capabilities.agent;
-  const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
 
   const conversations = useResource('agent:conversations', (signal) => api.agentMessages(null, { signal }));
   const [convo, setConvo] = useState<{ id: Id | null; messages: AgentMessage[] }>({ id: null, messages: [] });
@@ -328,7 +280,6 @@ export function AssistantView({ conversationId }: { conversationId?: string }) {
   const [picked, setPicked] = useState<Id[] | null>(null);
   const [pending, setPending] = useState<Turn | null>(null);
   const [failed, setFailed] = useState<{ turn: Turn; error: ApiRequestError | null; stopped: boolean } | null>(null);
-  const [freshId, setFreshId] = useState<Id | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   const loadedRef = useRef<Id | null>(null);
@@ -403,7 +354,6 @@ export function AssistantView({ conversationId }: { conversationId?: string }) {
         id: result.conversation.id,
         messages: [...(current.id === result.conversation.id || current.id === null ? current.messages : []), result.userMessage, result.reply],
       }));
-      setFreshId(result.reply.id);
       conversations.reload();
       if (conversationId !== result.conversation.id) navigate(routePath('assistant', result.conversation.id), true);
       if (result.reply.actions.length) {
@@ -591,9 +541,7 @@ export function AssistantView({ conversationId }: { conversationId?: string }) {
               <AssistantReply
                 key={message.id}
                 message={message}
-                animate={message.id === freshId && !reducedMotion}
                 onActionChange={(action) => updateAction(message.id, action)}
-                onRevealed={scrollToEnd}
               />
             ),
           )}

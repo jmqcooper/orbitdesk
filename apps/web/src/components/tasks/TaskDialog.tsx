@@ -20,10 +20,7 @@ export interface TaskDraft {
   source?: SourceRef | null;
 }
 
-/**
- * Create or edit one Google task. In edit mode the list can only change
- * within the task's own account, which is what Google allows.
- */
+/** Create or edit one Google task. A task stays in the list it was created in. */
 export function TaskDialog({
   task,
   initial,
@@ -81,7 +78,6 @@ export function TaskDialog({
             notes: notes.trim() ? notes : null,
             due: due || null,
             reminderAt,
-            taskListId: taskListId !== task.taskListId ? taskListId : undefined,
           })
         : await api.createTask({
             taskListId,
@@ -168,8 +164,13 @@ export function TaskDialog({
           <input className="input" type="text" value={title} onChange={(e) => setTitle(e.target.value)} data-autofocus required />
         </Field>
         <div className="form__row">
-          <Field label="List" hint={task ? 'A task can move between lists of the same account.' : undefined}>
-            <select className="input" value={taskListId} onChange={(e) => setTaskListId(e.target.value)} disabled={lists.length === 0}>
+          <Field label="List" hint={task ? 'Moving a task to another list is not available yet.' : undefined}>
+            <select
+              className="input"
+              value={taskListId}
+              onChange={(e) => setTaskListId(e.target.value)}
+              disabled={lists.length === 0 || Boolean(task)}
+            >
               {accountIds.map((accountId) => {
                 const owner = boot.connections.find((c) => c.id === accountId);
                 return (

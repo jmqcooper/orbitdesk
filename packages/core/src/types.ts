@@ -163,6 +163,7 @@ export const AUTH_ERROR_CODES = [
   'state_mismatch', // expired or forged state; start again
   'scope_denied', // consent granted without the required scopes
   'already_linked', // the Google account is linked to a different workspace
+  'account_mismatch', // reconnect (`accountId`) completed with a different Google account
   'account_limit', // plan or beta limit on connected accounts reached
   'admin_restricted', // Workspace administrator blocks the app or a scope
   'session_required', // mode=connect without an app session
@@ -812,7 +813,7 @@ export interface TaskUpdateRequest {
   notes?: string | null;
   due?: IsoDate | null;
   completed?: boolean;
-  /** Move to another list of the same account. */
+  /** Reserved: move to another list of the same account. Servers may answer 422. */
   taskListId?: Id;
   parentId?: Id | null;
   /** Reorder: place after this sibling; `null` moves to the top. */
@@ -844,7 +845,7 @@ export const ACTION_STATES = [
   'failed',
   'canceled', // user cancelled before execution
   'rejected', // user declined the proposal
-  'needs_review', // outcome uncertain or content changed; needs a fresh decision
+  'needs_review', // paused: outcome unconfirmed or content changed; never retried, dismissed by the user
 ] as const;
 export type ActionState = (typeof ACTION_STATES)[number];
 

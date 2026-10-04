@@ -79,7 +79,7 @@ export function Composer({
       const d = request.draft;
       return {
         accountId: d.accountId,
-        fromEmail: d.from.email,
+        fromEmail: d.from?.email ?? '',
         to: d.to,
         cc: d.cc,
         bcc: d.bcc,
@@ -116,6 +116,7 @@ export function Composer({
   const [savedAt, setSavedAt] = useState<string | null>(request.draft?.updatedAt ?? null);
   const [saveError, setSaveError] = useState<ApiRequestError | null>(null);
   const [conflict, setConflict] = useState<Draft | null>(null);
+  const [gone, setGone] = useState(false);
   const [sending, setSending] = useState<null | 'send' | 'schedule' | 'preview'>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -163,6 +164,37 @@ export function Composer({
     serverAttachments.reduce((sum, a) => sum + a.size, 0) + form.pending.reduce((sum, p) => sum + p.file.size, 0);
 
   /* ---------------- Saving ---------------- */
+
+  /**
+   * The server refused because the draft is not what this composer last saw — edited or
+   * removed in Gmail. Find out which, so the user chooses instead of overwriting blindly.
+   */
+  const handleStale = useCallback(async (error: ApiRequestError) => {
+    if (error.code !== 'conflict' && error.code !== 'not_found') return;
+    if (isDraft(error.details?.current)) {
+      setConflict(error.details.current);
+      return;
+    }
+    const current = draftRef.current;
+    if (!current) return;
+    try {
+      const list = await api.drafts({
+        accountId: current.accountId,
+        threadId: current.threadId ?? undefined,
+        limit: 100,
+      });
+      if (closedRef.current) return;
+      const latest = list.items.find((item) => item.id === current.id);
+      if (latest) {
+        if (latest.version !== current.version) setConflict(latest);
+      } else if (list.nextCursor === null) {
+        // Only when the whole list was read is its absence proof that the draft is gone.
+        setGone(true);
+      }
+    } catch {
+      // The error already on screen says what happened; the lookup adds nothing if it fails too.
+    }
+  }, []);
 
   const runSave = useCallback(
     async (force: boolean): Promise<Draft> => {
@@ -242,15 +274,15 @@ export function Composer({
       } catch (err) {
         const apiError = toApiError(err);
         if (!closedRef.current) {
-          if (apiError.code === 'conflict' && isDraft(apiError.details?.current)) setConflict(apiError.details.current);
           setSaveError(apiError);
+          void handleStale(apiError);
         }
         throw apiError;
       } finally {
         if (!closedRef.current) setSaving(false);
       }
     },
-    [mode, threadId, inReplyToMessageId, toast],
+    [mode, threadId, inReplyToMessageId, toast, handleStale],
   );
 
   /** Saves run one at a time, in order. */
@@ -265,12 +297,12 @@ export function Composer({
 
   // Autosave shortly after the last edit. A conflict pauses it until the user chooses.
   useEffect(() => {
-    if (!editTick || conflict || sending) return;
+    if (!editTick || conflict || gone || sending) return;
     const timer = setTimeout(() => {
       if (dirtyRef.current && formRef.current.accountId) save().catch(() => undefined);
     }, 1600);
     return () => clearTimeout(timer);
-  }, [editTick, conflict, sending, save]);
+  }, [editTick, conflict, gone, sending, save]);
 
   useImperativeHandle(
     ref,
@@ -394,7 +426,13 @@ export function Composer({
     setSendError(null);
     setSending(intent === 'preview' ? 'preview' : scheduleAt ? 'schedule' : 'send');
     try {
-      const saved = await save();
+      let saved: Draft;
+      try {
+        saved = await save();
+      } catch {
+        // The save step has already put its reason on screen; nothing was sent.
+        return;
+      }
       const { action } = await api.sendDraft(saved.id, {
         version: saved.version,
         intent,
@@ -412,10 +450,10 @@ export function Composer({
         toast({ tone: 'ok', message: 'Added to Approvals. Nothing has been sent.', action: review });
       } else if (action.state === 'needs_review') {
         toast({
-          tone: 'info',
-          message: action.summary ?? 'The send needs a second look before it can go out.',
+          tone: 'error',
+          message: `Not confirmed as sent. ${action.error?.message ?? 'Check Sent in Gmail before trying again.'}`,
           action: review,
-          durationMs: 9000,
+          durationMs: 12_000,
         });
       } else if (action.scheduledAt && action.state !== 'succeeded') {
         toast({
@@ -432,8 +470,8 @@ export function Composer({
       finish();
     } catch (err) {
       const apiError = toApiError(err);
-      if (apiError.code === 'conflict' && isDraft(apiError.details?.current)) setConflict(apiError.details.current);
-      else setSendError(apiError.message);
+      setSendError(apiError.message);
+      void handleStale(apiError);
     } finally {
       if (!closedRef.current) setSending(null);
     }
@@ -443,7 +481,7 @@ export function Composer({
     draftRef.current = theirs;
     formRef.current = {
       accountId: theirs.accountId,
-      fromEmail: theirs.from.email,
+      fromEmail: theirs.from?.email ?? '',
       to: theirs.to,
       cc: theirs.cc,
       bcc: theirs.bcc,
@@ -461,9 +499,30 @@ export function Composer({
     setSaveError(null);
   };
 
-  const keepMine = () => {
+  /** Keep this composer's text, saved on top of the other version the user has now seen. */
+  const keepMine = (theirs: Draft) => {
+    draftRef.current = theirs;
+    dirtyRef.current = true;
+    setDraft(theirs);
+    setDirty(true);
     setConflict(null);
+    setSaveError(null);
+    setSendError(null);
     save(true).catch(() => undefined);
+  };
+
+  /** The Gmail draft is gone; what is on screen becomes a fresh draft. */
+  const saveAsNew = () => {
+    draftRef.current = null;
+    dirtyRef.current = true;
+    formRef.current = { ...formRef.current, removedIds: [] };
+    setDraft(null);
+    setForm(formRef.current);
+    setDirty(true);
+    setGone(false);
+    setSaveError(null);
+    setSendError(null);
+    save().catch(() => undefined);
   };
 
   /* ---------------- Schedule presets ---------------- */
@@ -685,14 +744,28 @@ export function Composer({
                   <Button size="sm" onClick={() => loadTheirs(conflict)}>
                     Load that version
                   </Button>
-                  <Button size="sm" variant="primary" onClick={keepMine}>
+                  <Button size="sm" variant="primary" onClick={() => keepMine(conflict)}>
                     Keep mine and overwrite
                   </Button>
                 </div>
               </div>
             </div>
           )}
-          {!conflict && saveError && (
+          {gone && !conflict && (
+            <div className="notice notice--warn composer__notice" role="alert">
+              <TriangleAlert size={15} aria-hidden="true" />
+              <div className="notice__text">
+                <strong>This draft is no longer in Gmail.</strong> It may have been sent or deleted there. What you see
+                here has not been lost, but attachments saved with the old draft are gone.
+                <div className="notice__actions">
+                  <Button size="sm" variant="primary" onClick={saveAsNew}>
+                    Save as a new draft
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+          {!conflict && !gone && saveError && (
             <div className="notice notice--danger composer__notice" role="alert">
               <TriangleAlert size={15} aria-hidden="true" />
               <span className="notice__text">
@@ -721,7 +794,7 @@ export function Composer({
               <button
                 type="button"
                 className="btn btn--accent split__main"
-                disabled={busy || Boolean(conflict)}
+                disabled={busy || Boolean(conflict) || gone}
                 onClick={() => void submit('send', null)}
                 title="Send now (⌘ Enter)"
               >
@@ -741,7 +814,7 @@ export function Composer({
                     aria-label="Schedule or send for approval"
                     aria-haspopup="dialog"
                     aria-expanded={scheduleOpen}
-                    disabled={busy || Boolean(conflict)}
+                    disabled={busy || Boolean(conflict) || gone}
                     onClick={() => {
                       if (!customTime) setCustomTime(toDateTimeInput(at(addDays(new Date(), 1), 9)));
                       setScheduleOpen((value) => !value);

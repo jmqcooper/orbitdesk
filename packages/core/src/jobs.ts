@@ -6,6 +6,7 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { runAgent } from './agent';
 import { connections, type Context } from './store';
 import { automationView, connectionView } from './views';
+import { retainCache } from './retention';
 
 let boss:PgBoss|undefined,starting:Promise<PgBoss>|undefined;
 export async function queue() {if(boss)return boss;if(starting)return starting;starting=(async()=>{const q=new PgBoss({connectionString:process.env.DATABASE_URL!,schema:'pgboss'});q.on('error',()=>console.error('Queue operation failed; durable actions remain in Postgres.'));await q.start();await q.createQueue('sync-account',{retryLimit:2,retryDelay:30});await q.createQueue('execute-action',{retryLimit:0});boss=q;return q;})();try{return await starting;}finally{starting=undefined;}}
@@ -26,6 +27,6 @@ export async function tick() {
 export async function startWorker() {
   const q=await queue();await q.work('execute-action',{batchSize:1},async jobs=>{for(const j of jobs)await execute((j.data as any).actionId);});await q.work('sync-account',{batchSize:1},async jobs=>{for(const j of jobs){const c=await db.connection.findUnique({where:{id:(j.data as any).connectionId}});if(c&&c.status!=='paused')await syncConnection(c);}});
   let stopped=false,lastSync=0,lastCleanup=0;
-  const loop=async()=>{if(stopped)return;try{await tick();if(Date.now()-lastSync>Number(process.env.SYNC_INTERVAL_SECONDS||120)*1000){lastSync=Date.now();const cs=await db.connection.findMany({where:{credentials:{not:null},status:{not:'paused'}}});for(const c of cs)await enqueueSync(c.id);}if(Date.now()-lastCleanup>3600000){lastCleanup=Date.now();await db.oAuthState.deleteMany({where:{expiresAt:{lt:new Date()}}});await db.session.deleteMany({where:{expiresAt:{lt:new Date()}}});const old=await db.user.findMany({where:{googleSub:null,createdAt:{lt:new Date(Date.now()-86400000)},workspaces:{every:{demo:true}}},select:{id:true}});await db.user.deleteMany({where:{id:{in:old.map(u=>u.id)}}});}}catch{console.error('Worker tick failed; it will retry on the next tick.');}if(!stopped)setTimeout(loop,1000);};void loop();
+  const loop=async()=>{if(stopped)return;try{await tick();if(Date.now()-lastSync>Number(process.env.SYNC_INTERVAL_SECONDS||120)*1000){lastSync=Date.now();const cs=await db.connection.findMany({where:{credentials:{not:null},status:{not:'paused'}}});for(const c of cs)await enqueueSync(c.id);}if(Date.now()-lastCleanup>3600000){lastCleanup=Date.now();await retainCache();await db.oAuthState.deleteMany({where:{expiresAt:{lt:new Date()}}});await db.session.deleteMany({where:{expiresAt:{lt:new Date()}}});const old=await db.user.findMany({where:{googleSub:null,createdAt:{lt:new Date(Date.now()-86400000)},workspaces:{every:{demo:true}}},select:{id:true}});await db.user.deleteMany({where:{id:{in:old.map(u=>u.id)}}});}}catch{console.error('Worker tick failed; it will retry on the next tick.');}if(!stopped)setTimeout(loop,1000);};void loop();
   return async()=>{stopped=true;await q.stop({graceful:true});await db.$disconnect();};
 }

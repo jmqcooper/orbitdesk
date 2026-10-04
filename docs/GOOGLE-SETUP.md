@@ -13,7 +13,7 @@ The Google Cloud project created for this beta is `orbitdesk-20261004`. Its Work
 5. Create a web OAuth client. Authorized JavaScript origin: `https://web-production-cbebe.up.railway.app`. Authorized redirect URI: `https://web-production-cbebe.up.railway.app/api/auth/callback`. Add the matching localhost origin and redirect URI only to a separate development client.
 6. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on both Railway app services. Never put the client secret in frontend variables or GitHub.
 
-The login scope set is `openid email profile`. Connection scopes are defined in `packages/core/src/google.ts`. Gmail uses `gmail.modify`, Calendar uses `calendar`, Tasks uses `tasks`. Contacts are read-only. Files combines app-created Drive file access, Drive read access, and Docs/Sheets/Slides editing. Consent is incremental and every connected account has its own encrypted refresh token.
+The login scope set is `openid email profile`. Connection scopes are defined in `packages/core/src/google.ts`. Gmail uses `gmail.modify`, Calendar uses `calendar.events`, `calendar.calendarlist.readonly` and `calendar.freebusy`, Tasks uses `tasks`. Contacts are read-only. Files combines app-created Drive file access, Drive read access, and Docs/Sheets/Slides editing. Consent is incremental and every connected account has its own encrypted refresh token.
 
 OAuth testing has Google-imposed user and token-lifetime limits. A public SaaS launch using restricted Gmail scopes needs the applicable Google verification and security assessment before broad release. Invite-only branding does not itself waive those requirements. Workspace admins can also block grants.
 

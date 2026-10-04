@@ -295,7 +295,7 @@ function Preview({ preview }: { preview: ActionPreview }) {
     default:
       return (
         <dl className="acard__grid">
-          {preview.fields.map((field) => (
+          {(preview.fields ?? []).map((field) => (
             <FieldPair key={field.label} label={field.label} value={field.value} />
           ))}
         </dl>
@@ -332,7 +332,8 @@ export function ActionCard({
 }) {
   const { toast, refreshBoot } = useApp();
   const decidable = action.state === 'proposed';
-  // The provider never confirmed the outcome. It is never retried; the user checks Google and dismisses it.
+  // Paused by the server: the outcome was not confirmed, or the content changed after it was
+  // prepared. It is never retried or re-approved; the user dismisses it.
   const uncertain = action.state === 'needs_review';
   const cancelable = action.state === 'approved' || action.state === 'queued';
   const [open, setOpen] = useState(defaultOpen ?? (decidable || uncertain || cancelable));
@@ -381,7 +382,7 @@ export function ActionCard({
   };
 
   return (
-    <article className={clsx('acard', `acard--${action.state}`, decidable && 'acard--pending')} aria-label={action.title}>
+    <article className={clsx('acard', `acard--${action.state}`, (decidable || uncertain) && 'acard--pending')} aria-label={action.title}>
       <header className="acard__head">
         <span className="acard__icon" aria-hidden="true">
           <Icon size={16} />
@@ -422,9 +423,10 @@ export function ActionCard({
             <div className="notice notice--warn" role="alert">
               <TriangleAlert size={15} aria-hidden="true" />
               <span className="notice__text">
-                <strong>Google did not confirm whether this happened.</strong> Check the account in Google first.
-                Orbitdesk will not try it again by itself — dismiss this once you know the outcome, and prepare the
-                action again if it did not go through.
+                <strong>Paused — this will not run or retry by itself.</strong>{' '}
+                {action.error?.message ?? 'The outcome could not be confirmed.'} If it may already have happened,
+                check the account in Google first. Then dismiss this, and prepare the action again if it is still
+                needed.
               </span>
             </div>
           )}
@@ -467,7 +469,7 @@ export function ActionCard({
               )}
             </p>
           )}
-          {action.error && (
+          {action.error && !uncertain && (
             <p className="acard__error" role="alert">
               <CircleX size={14} aria-hidden="true" /> {action.error.message} <span className="mono-note">({action.error.code})</span>
             </p>

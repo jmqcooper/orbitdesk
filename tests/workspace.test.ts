@@ -10,6 +10,7 @@ import { stopQueue, tick, nextRun } from '../packages/core/src/jobs';
 import { availability, createDraft } from '../packages/core/src/workspace';
 import { encrypt, decrypt, safeHtml, hashPayload } from '../packages/core/src/security';
 import { syncMail } from '../packages/core/src/google';
+import { retainCache } from '../packages/core/src/retention';
 import { readDocument } from '../packages/core/src/documents';
 
 let one:Context,two:Context,cookie:string,foreignCookie:string;
@@ -22,6 +23,7 @@ describe('workspace isolation and API',()=>{
   it('provides contract-shaped bootstrap with twelve accounts and eight calendars',async()=>{const r=await call('bootstrap');expect(r.status).toBe(200);expect(r.json.data.session.mode).toBe('demo');expect(r.json.data.connections).toHaveLength(12);expect(r.json.data.calendars).toHaveLength(8);expect(r.json.data.settings.workingHours.start).toBe('09:00');expect(JSON.stringify(r.json)).not.toContain('credentials');});
   it('blocks cross-workspace ids for threads, tasks and account selection',async()=>{const threads=await resources(one,'thread'),tasks=await resources(one,'task');expect((await call('threads/'+threads[0].id,'GET',undefined,foreignCookie)).status).toBe(404);expect((await call('tasks/'+tasks[0].id,'PATCH',{completed:true},foreignCookie)).status).toBe(404);expect((await call('threads?accountId='+threads[0].connectionId,'GET',undefined,foreignCookie)).status).toBe(404);});
   it('validates mutations and can create, complete and delete tasks',async()=>{const b=await bootstrap(one),taskListId=b.taskLists[0].id;expect((await call('tasks','POST',{taskListId,title:''})).status).toBe(422);const made=await call('tasks','POST',{taskListId,title:'Integration check',due:'2026-10-05'});expect(made.status).toBe(201);const done=await call('tasks/'+made.json.data.id,'PATCH',{completed:true});expect(done.json.data.completed).toBe(true);expect((await call('tasks/'+made.json.data.id,'DELETE')).status).toBe(200);});
+  it('matches Gmail-style sandbox searches and scoped account filters',async()=>{const b=await bootstrap(one),studio=b.connections.find(c=>c.label==='Studio')!;const r=await call('threads?folder=all&accountId='+studio.id+'&q='+encodeURIComponent('from:alex subject:proposal is:unread'));expect(r.json.data.items).toHaveLength(1);expect(r.json.data.items[0].accountId).toBe(studio.id);expect((await call('threads?folder=all&q='+encodeURIComponent('subject:proposal -from:alex'))).json.data.items).toHaveLength(0);});
   it('archives and restores a thread through actual endpoints',async()=>{const r=(await resources(one,'thread'))[0];let out=await call('threads/'+r.id+'/actions','POST',{action:'archive'});expect(out.json.data.inInbox).toBe(false);out=await call('threads/'+r.id+'/actions','POST',{action:'unarchive'});expect(out.json.data.inInbox).toBe(true);});
 });
 describe('drafts and immutable approvals',()=>{
@@ -40,4 +42,25 @@ describe('calendar and security',()=>{
 });
 describe('Google sync contracts',()=>{
   it('keeps Gmail history ids as strings, reads every page and never commits a failed cursor',async()=>{let c=await connection(one,(await resources(one,'thread'))[0].connectionId);c=await db.connection.update({where:{id:c.id},data:{credentials:encrypt({access_token:'test-access',expiry_date:Date.now()+3600000}),scopes:['https://www.googleapis.com/auth/gmail.modify'],syncState:json({mailHistoryId:'9007199254740993000'})}});const calls:string[]=[];const mock=vi.fn(async(url:any)=>{calls.push(String(url));let data:any={};if(String(url).endsWith('/profile'))data={historyId:'9007199254740993009'};else if(String(url).includes('/history?'))data=String(url).includes('pageToken=next')?{history:[],historyId:'9007199254740993009'}:{history:[],nextPageToken:'next',historyId:'9007199254740993001'};else if(String(url).includes('/labels'))data={labels:[]};else if(String(url).includes('/drafts'))data={drafts:[]};else if(String(url).includes('sendAs'))data={sendAs:[]};return Response.json(data);});vi.stubGlobal('fetch',mock);const delta=await syncMail(c);expect(delta.mailHistoryId).toBe('9007199254740993009');expect(calls.some(x=>x.includes('startHistoryId=9007199254740993000'))).toBe(true);expect(calls.some(x=>x.includes('pageToken=next'))).toBe(true);expect(object((await db.connection.findUnique({where:{id:c.id}}))!.syncState).mailHistoryId).toBe('9007199254740993000');mock.mockImplementationOnce(async()=>{throw new Error('network failed');});await expect(syncMail(c)).rejects.toThrow();vi.unstubAllGlobals();await db.connection.update({where:{id:c.id},data:{credentials:null,scopes:['sandbox']}});});
+});
+
+describe('mail retention',()=>{
+  it('purges expired real mail but preserves working drafts, pending sources and sandbox data',async()=>{
+    const ctx=await createDemo();
+    try{
+      await db.workspace.update({where:{id:ctx.workspace.id},data:{demo:false}});
+      const threads=await resources(ctx,'thread'),old='2026-01-01T00:00:00.000Z';
+      for(const r of threads.slice(0,3))await db.resource.update({where:{id:r.id},data:{data:json({...object(r.data),lastMessageAt:old})}});
+      const c=await connection(ctx,threads[1].connectionId);
+      await db.resource.create({data:{workspaceId:ctx.workspace.id,connectionId:c.id,kind:'draft',providerId:'retained-draft',parentId:threads[1].id,data:json({})}});
+      await db.action.create({data:{workspaceId:ctx.workspace.id,type:'create_task',title:'Pending source',description:'Retain source while awaiting approval',payload:json({input:{source:{id:threads[2].id}}}),payloadHash:'retention-test'}});
+      const demoThread=(await resources(two,'thread'))[0];
+      await db.resource.update({where:{id:demoThread.id},data:{data:json({...object(demoThread.data),lastMessageAt:old})}});
+      await retainCache(new Date('2026-10-04T00:00:00.000Z'));
+      expect(await db.resource.findUnique({where:{id:threads[0].id}})).toBeNull();
+      expect(await db.resource.findUnique({where:{id:threads[1].id}})).not.toBeNull();
+      expect(await db.resource.findUnique({where:{id:threads[2].id}})).not.toBeNull();
+      expect(await db.resource.findUnique({where:{id:demoThread.id}})).not.toBeNull();
+    }finally{await db.user.delete({where:{id:ctx.user.id}});}
+  });
 });

@@ -9,6 +9,7 @@ import { AppError, sha256, hashPayload } from './security';
 import * as V from './validation';
 import * as views from './views';
 import type * as T from './types';
+import { matchesMailQuery } from './mail-search';
 
 export const list=<X>(items:X[],gaps:T.SourceGap[]=[]):T.ListResult<X>=>({items,nextCursor:null,gaps});
 export function scopeAvailable(c:Connection,area:string,ctx:Context) {return ctx.workspace.demo||(area==='files'?GOOGLE_SCOPES.files.slice(0,2).some(s=>c.scopes.includes(s)):c.scopes.includes(GOOGLE_SCOPES[area]?.[0]||''));}
@@ -17,10 +18,10 @@ export async function gapList(ctx:Context,area:T.ResourceKind) {return (await co
 export async function getThreads(ctx:Context,q='',folder='inbox',labelId?:string) {
   const gaps=await gapList(ctx,'mail');
   if(q&&!ctx.workspace.demo){for(const c of await connections(ctx)){if(!scopeAvailable(c,'mail',ctx))continue;try{const matches=await pages(c,`gmail/threads?q=${enc(q)}&maxResults=100`,'threads');for(const m of matches.slice(0,100))await hydrateThread(c,m.id);}catch(e){gaps.push({accountId:c.id,resource:'mail',resourceId:null,code:'provider_error',message:(e as Error).message});}}}
-  let rows=(await resources(ctx,'thread')).map(views.threadView);const bad=new Set(gaps.map(g=>g.accountId));rows=rows.filter(t=>!bad.has(t.accountId));
+  const cached=await resources(ctx,'thread');let rows=cached.map(views.threadView);const bad=new Set(gaps.map(g=>g.accountId));rows=rows.filter(t=>!bad.has(t.accountId));
   rows=rows.filter(t=>folder==='trash'?t.trashed:!t.trashed&& (folder==='inbox'?t.inInbox:folder==='unread'?t.inInbox&&t.unread:folder==='starred'?t.starred:folder==='sent'?t.labelIds.includes('SENT'):true));
   if(labelId)rows=rows.filter(t=>t.labelIds.includes(labelId));
-  if(q){if(ctx.workspace.demo)rows=rows.filter(t=>(t.subject+' '+t.snippet+' '+t.participants.map(p=>p.email).join(' ')).toLowerCase().includes(q.toLowerCase().replace(/^subject:/,'')));else{const selected=new Set<string>();for(const c of await connections(ctx)){if(bad.has(c.id))continue;try{const ms=await pages(c,`gmail/threads?q=${enc(q)}&maxResults=100`,'threads');for(const m of ms){const r=await db.resource.findUnique({where:{connectionId_kind_providerId:{connectionId:c.id,kind:'thread',providerId:m.id}}});if(r)selected.add(r.id);}}catch{}}rows=rows.filter(t=>selected.has(t.id));}}
+  if(q){if(ctx.workspace.demo)rows=rows.filter(t=>matchesMailQuery(views.threadDetailView(cached.find(r=>r.id===t.id)!),q));else{const selected=new Set<string>();for(const c of await connections(ctx)){if(bad.has(c.id))continue;try{const ms=await pages(c,`gmail/threads?q=${enc(q)}&maxResults=100`,'threads');for(const m of ms){const r=await db.resource.findUnique({where:{connectionId_kind_providerId:{connectionId:c.id,kind:'thread',providerId:m.id}}});if(r)selected.add(r.id);}}catch{}}rows=rows.filter(t=>selected.has(t.id));}}
   rows.sort((a,b)=>b.lastMessageAt.localeCompare(a.lastMessageAt));return list(rows,gaps);
 }
 export async function getThread(ctx:Context,id:string) {let r=await resource(ctx,id,'thread');const c=await connection(ctx,r.connectionId);assertScope(c,'mail',ctx);if(!ctx.workspace.demo)r=await hydrateThread(c,r.providerId);return views.threadDetailView(r);}

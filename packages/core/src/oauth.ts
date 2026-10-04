@@ -38,7 +38,7 @@ export async function finishOAuth(req:Request) {
       return new Response(null,{status:302,headers:{Location:appUrl()+'/?auth=signed_in','Set-Cookie':await createSession(user.id)}});
     }
     const ctx=await context(req,true);if(!ctx||ctx.user.id!==record.userId||ctx.workspace.id!==record.workspaceId)return redirect('auth_error=session_required');
-    if(meta.googleSub&&meta.googleSub!==p.sub)return redirect('auth_error=already_linked');
+    if(meta.googleSub&&meta.googleSub!==p.sub)return redirect('auth_error=account_mismatch');
     const existing=await db.connection.findUnique({where:{workspaceId_googleSub:{workspaceId:ctx.workspace.id,googleSub:p.sub}}});
     if(!existing&&await db.connection.count({where:{workspaceId:ctx.workspace.id}})>=30)return redirect('auth_error=account_limit');
     const prior=existing?.credentials?(await import('./security')).decrypt<any>(existing.credentials):{};

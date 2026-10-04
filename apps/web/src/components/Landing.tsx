@@ -235,8 +235,8 @@ export function Landing({
                 <p className="signin__note">
                   {auth.inviteOnly
                     ? 'Invite-only beta — sign in with the Google account that was invited. '
-                    : 'Sign in creates your workspace. '}
-                  You link further accounts inside, one consent screen each.
+                    : 'Signing in only identifies you. '}
+                  You then connect each Google account inside, one consent screen at a time.
                 </p>
               ) : (
                 <p className="signin__note signin__note--warn" id="google-unavailable">
@@ -257,7 +257,7 @@ export function Landing({
                 </div>
                 <p className="demo-box__text">
                   A private workspace of simulated accounts, mail and calendars. It never touches Google, never
-                  delivers a message, and is discarded when you leave.
+                  delivers a message, and is deleted automatically after one day.
                 </p>
                 <button
                   type="button"

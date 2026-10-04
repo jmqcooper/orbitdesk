@@ -7,8 +7,8 @@ import { AppError, encrypt, decrypt, safeHtml, safeProviderError } from './secur
 import { put } from './store';
 
 export const GOOGLE_SCOPES: Record<string,string[]> = {
-  mail:['https://www.googleapis.com/auth/gmail.modify','https://www.googleapis.com/auth/gmail.settings.basic'],
-  calendar:['https://www.googleapis.com/auth/calendar'],
+  mail:['https://www.googleapis.com/auth/gmail.modify'],
+  calendar:['https://www.googleapis.com/auth/calendar.events','https://www.googleapis.com/auth/calendar.calendarlist.readonly','https://www.googleapis.com/auth/calendar.freebusy'],
   tasks:['https://www.googleapis.com/auth/tasks'],
   contacts:['https://www.googleapis.com/auth/contacts.readonly'],
   files:['https://www.googleapis.com/auth/drive.file','https://www.googleapis.com/auth/drive.readonly','https://www.googleapis.com/auth/documents','https://www.googleapis.com/auth/spreadsheets','https://www.googleapis.com/auth/presentations'],
@@ -58,7 +58,7 @@ export async function syncMail(conn:Connection) {
   const labels=await api(conn,'gmail/labels');for(const l of labels.labels||[])await put(conn,'label',l.id,{name:l.name,kind:l.type==='user'?'user':'system',color:l.color?.backgroundColor||null});
   const drafts=await pages(conn,'gmail/drafts?maxResults=100','drafts');for(const d of drafts)await hydrateDraft(conn,d.id);
   await db.resource.deleteMany({where:{connectionId:conn.id,kind:'draft',providerId:{notIn:drafts.map(d=>d.id)}}});
-  try{const identities=await api(conn,'gmail/settings/sendAs');await db.connection.update({where:{id:conn.id},data:{settings:json({...object(conn.settings),sendAs:(identities.sendAs||[]).map((a:any)=>({email:a.sendAsEmail,name:a.displayName||null,isDefault:!!a.isDefault}))})}});}catch{/* gmail.modify may not allow settings.basic; verified primary identity remains valid. */}
+  try{const identities=await api(conn,'gmail/settings/sendAs');await db.connection.update({where:{id:conn.id},data:{settings:json({...object(conn.settings),sendAs:(identities.sendAs||[]).filter((a:any)=>a.isPrimary||a.verificationStatus==='accepted').map((a:any)=>({email:a.sendAsEmail,name:a.displayName||null,isDefault:!!a.isDefault}))})}});}catch{/* Keep the verified primary identity if Google cannot list aliases. */}
   return {mailHistoryId:String(nextCursor)};
 }
 export async function hydrateDraft(conn:Connection,id:string) {

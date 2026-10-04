@@ -31,7 +31,7 @@ async function settings(ctx:Context,input:unknown) {const v=V.settingsUpdate.par
 export async function handle(req:Request) {try{return await dispatch(req);}catch(e){if(e instanceof ZodError)return Response.json({error:{code:'validation_failed',message:e.issues[0]?.message||'Check the fields and try again.',details:{fields:Object.fromEntries(e.issues.map(i=>[i.path.join('.'),i.message]))} }},{status:422});if(e instanceof AppError)return Response.json({error:{code:e.code.toLowerCase(),message:e.message}},{status:e.status});console.error('Request failed:',e instanceof Error?e.name:'UnknownError');return Response.json({error:{code:'internal',message:'The request could not be completed. Try again.'}},{status:500});}}
 async function dispatch(req:Request):Promise<Response> {
   enforceOrigin(req);const u=new URL(req.url),p=u.pathname.replace(/^\/api\/?/,'').split('/').map(decodeURIComponent),method=req.method;
-  if(method==='GET'&&p[0]==='health')return response(await health());
+  if(method==='GET'&&p[0]==='health'){const h=await health();return response(h,h.checks.database==='down'?503:200);}
   if(method==='GET'&&p[0]==='session'){const ctx=await context(req,false);return response({session:ctx?view.sessionView(ctx):null,auth:{google:{available:configuredGoogle(),reason:configuredGoogle()?null:'Google sign-in is not configured yet. You can explore the isolated sandbox.'},demo:{available:allowDemo(),reason:allowDemo()?null:'The sandbox is disabled.'},inviteOnly:!!process.env.BETA_EMAILS}});}
   if(p[0]==='auth') {
     if(method==='GET'&&p[1]==='google')return beginOAuth(req);

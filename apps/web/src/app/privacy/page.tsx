@@ -48,7 +48,7 @@ const sections: LegalSection[] = [
               <td>Calendar</td>
               <td>
                 <code>calendar.events</code>, <code>calendar.calendarlist.readonly</code>,{' '}
-                <code>calendar.events.freebusy</code>
+                <code>calendar.freebusy</code>
               </td>
               <td>Showing events, checking availability, and creating or changing events you approve.</td>
             </tr>
@@ -69,9 +69,9 @@ const sections: LegalSection[] = [
             <tr>
               <td>Files (optional)</td>
               <td>
-                <code>drive.file</code>
+                <code>drive.file</code>, <code>drive.readonly</code>, <code>documents</code>, <code>spreadsheets</code>, <code>presentations</code>
               </td>
-              <td>Only files you pick for Orbitdesk or that it creates for you — not the rest of your Drive.</td>
+              <td>Searching and reading Drive files, creating files, and editing Docs, Sheets and Slides after you approve. Drive metadata changes are limited by the granted scopes and Google file permissions.</td>
             </tr>
           </tbody>
         </table>
@@ -91,14 +91,13 @@ const sections: LegalSection[] = [
         <ul>
           <li>
             <strong>Mail cache.</strong> Headers, labels and bodies of recent mail (30 days by default). Older mail is
-            fetched from Google on demand and not retained beyond the cache window.
+            fetched from Google on demand. The worker purges expired mail hourly, except conversations needed by working drafts or pending approvals.
           </li>
           <li>
             <strong>Calendar and task cache.</strong> Events in the ranges you view and your task lists.
           </li>
           <li>
-            <strong>Attachments.</strong> Uploaded attachments are placed in a Gmail draft in your own mailbox, not in
-            long-term Orbitdesk storage.
+            <strong>Attachments.</strong> Uploaded attachments are placed in a Gmail draft in your mailbox and kept in the working draft and exact send snapshot stored by Orbitdesk.
           </li>
           <li>
             <strong>Actions and approvals.</strong> The exact content you approved, its hash, and the outcome, so a
@@ -114,8 +113,7 @@ const sections: LegalSection[] = [
           </li>
         </ul>
         <p>
-          Operators of a self-hosted deployment choose the actual retention periods; the current values are shown under
-          Connections &amp; settings → Data &amp; privacy.
+          Assistant conversations, drafts and approval records remain until you delete the workspace. Demo workspaces are deleted after one day. The current defaults are shown under Connections &amp; settings → Data &amp; privacy.
         </p>
       </>
     ),
@@ -131,7 +129,7 @@ const sections: LegalSection[] = [
           selected for that question.
         </p>
         <ul>
-          <li>Your Google data is not used to train general-purpose models.</li>
+          <li>This hosted beta uses Vertex AI on a billed project, whose service does not train general-purpose models on your content. Self-hosted operators must choose an appropriate provider agreement.</li>
           <li>
             Email, attachments and documents are treated as data. Text inside them cannot grant permissions, widen the
             set of accounts, or instruct the assistant to send information elsewhere.
@@ -181,7 +179,7 @@ const sections: LegalSection[] = [
     title: 'Tracking and remote content',
     body: (
       <p>
-        Remote images in email are blocked until you ask to see them, so senders cannot tell that a message was opened.
+        Remote images in email are removed by the server. Email links remain clickable, so following a sender’s link can still reveal activity to that sender.
         Email HTML is sanitised and displayed in an isolated frame where scripts cannot run. Orbitdesk does not record
         the content of your mail as analytics.
       </p>

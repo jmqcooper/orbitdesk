@@ -27,12 +27,13 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, googleAuthUrl, toApiError } from '@/lib/api';
-import { initials } from '@/lib/format';
+import { firstName, initials } from '@/lib/format';
 import { routePath, useHashRoute, useResource } from '@/lib/hooks';
 import type { AuthConfig, Bootstrap, Id } from '@/lib/types';
 import {
   AccountDot,
   AppProvider,
+  useApp,
   type AppContextValue,
   type AssistantSeed,
   type ComposeRequest,
@@ -105,6 +106,52 @@ interface NavItem {
   icon: LucideIcon;
   count?: number;
   countTone?: 'accent' | 'muted';
+}
+
+/** Shown in place of every data view until the workspace has its first connected account. */
+function Welcome() {
+  const { boot } = useApp();
+  const connect = boot.capabilities.googleConnect;
+  const name = firstName({ name: boot.session.user.name, email: boot.session.user.email });
+  return (
+    <div className="view view--narrow welcome">
+      <p className="kicker">Getting started</p>
+      <h1 className="masthead__title">Welcome, {name}. Connect your first account.</h1>
+      <p className="masthead__lede masthead__lede--plain">
+        Signing in told Orbitdesk who you are — it has not read anything yet. Connect a Google account to bring its
+        mail, calendar and tasks here. You can add the rest of your accounts afterwards, one consent screen each.
+      </p>
+      <ol className="welcome__steps">
+        <li>
+          <span>01</span> Pick the Google account and approve access on Google’s consent screen.
+        </li>
+        <li>
+          <span>02</span> Orbitdesk syncs its recent mail, calendars and task lists.
+        </li>
+        <li>
+          <span>03</span> Decide whether the assistant may read it. Nothing is sent or changed without your approval.
+        </li>
+      </ol>
+      {connect.available ? (
+        <a className="btn btn--accent welcome__cta" href={googleAuthUrl('connect', { features: ['mail', 'calendar', 'tasks'] })}>
+          <Plus size={16} aria-hidden="true" />
+          <span>Connect a Google account</span>
+        </a>
+      ) : (
+        <div className="notice notice--warn" role="status">
+          <TriangleAlert size={15} aria-hidden="true" />
+          <span className="notice__text">
+            <strong>Accounts cannot be connected right now.</strong>{' '}
+            {connect.reason ?? 'The Google OAuth client is not configured on this deployment.'}
+          </span>
+        </div>
+      )}
+      <p className="welcome__more">
+        This first request asks for Gmail, Calendar and Tasks. To choose the areas yourself, or to add Contacts and
+        Drive, use <a href="#/connections">Connections</a>.
+      </p>
+    </div>
+  );
 }
 
 interface ToastItem extends ToastInput {
@@ -260,8 +307,14 @@ function Workspace({ boot, bootStale, auth, refreshBoot, patchBoot, flash, onFla
   const attention = boot.connections.filter((c) => c.status === 'reconnect_required' || c.status === 'error');
   const user = boot.session.user;
 
+  // Sign-in only identifies the user; nothing is readable until an account is connected.
+  const needsFirstAccount = boot.connections.length === 0 && route.view !== 'connections' && route.view !== 'settings';
+
   let view: React.ReactNode;
-  switch (route.view) {
+  switch (needsFirstAccount ? 'welcome' : route.view) {
+    case 'welcome':
+      view = <Welcome />;
+      break;
     case '':
     case 'today':
       view = <TodayView />;
@@ -441,11 +494,10 @@ function Workspace({ boot, bootStale, auth, refreshBoot, patchBoot, flash, onFla
                 <strong>Sandbox demo.</strong> Accounts, mail and calendars here are simulated. Nothing reaches Google
                 or a real recipient.
               </span>
-              {auth.google.available && (
-                <a className="demo-strip__link" href={googleAuthUrl('login')}>
-                  Sign in with Google
-                </a>
-              )}
+              {/* A sandbox session cannot start Google sign-in; leaving it returns to the sign-in page. */}
+              <button type="button" className="link-btn demo-strip__link" onClick={signOut}>
+                {auth.google.available ? 'Leave and sign in with Google' : 'Leave the sandbox'}
+              </button>
             </div>
           )}
 

@@ -3,6 +3,7 @@ import { db, json } from './db';
 import { put } from './store';
 import { allowDemo } from './config';
 import { AppError } from './security';
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 
 export async function createDemo() {
   if(!allowDemo())throw new AppError('DEMO_DISABLED','The sandbox is disabled on this instance.',403);
@@ -17,7 +18,7 @@ export async function createDemo() {
   const conns=[];
   for(const [email,label,color] of accounts) conns.push(await db.connection.create({data:{workspaceId:workspace.id,googleSub:randomUUID(),email,name:'Mike Cooper',label,color,status:'connected',scopes:['sandbox'],lastSyncAt:new Date(),settings:json({isDemo:true,assistantEnabled:true})}}));
   const now=new Date();
-  const at=(days:number,hour:number,minute=0)=>{const d=new Date(now);d.setDate(d.getDate()+days);d.setHours(hour,minute,0,0);return d.toISOString();};
+  const at=(days:number,hour:number,minute=0)=>{const d=new Date(formatInTimeZone(now,'Europe/Amsterdam','yyyy-MM-dd')+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+days);return fromZonedTime(d.toISOString().slice(0,10)+'T'+String(hour).padStart(2,'0')+':'+String(minute).padStart(2,'0')+':00','Europe/Amsterdam').toISOString();};
   const threads=[
     {account:0,name:'Lena Fischer',email:'lena@northstar.example',subject:'Product review · Thursday?',text:'Hey Mike, could we find 30 minutes on Thursday to walk through the Orbitdesk beta? I can do 10:00 or 14:00 Amsterdam time. We should review account permissions and the first onboarding flow.',age:18,unread:true,starred:true,labels:['INBOX','UNREAD','STARRED'],category:'Needs a reply'},
     {account:2,name:'Noah Williams',email:'noah@studio.example',subject:'The identity explorations are ready',text:'I have uploaded the first three identity directions to the shared folder. My preference is direction two: calm typography, warm paper, and a confident account rail. Would love your thoughts before Friday.',age:43,unread:true,starred:false,labels:['INBOX','UNREAD'],category:'Projects'},
@@ -54,4 +55,3 @@ export async function createDemo() {
   await db.activity.create({data:{workspaceId:workspace.id,actor:user.id,type:'connection.connected',title:'Sandbox ready with 12 accounts and 8 calendars',detail:json({isDemo:true})}});
   return {user,workspace};
 }
-

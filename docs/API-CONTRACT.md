@@ -155,7 +155,12 @@ After the Google round trip the server redirects to `returnTo` with one of:
 - `?auth=connected&accountId=<id>` after linking or re-authorising.
 - `?auth_error=<AuthErrorCode>` on failure, optionally with `&auth_email=<google email>` so the message can name the account.
 
-`AuthErrorCode` values: `access_denied`, `not_invited`, `not_configured`, `state_mismatch`, `scope_denied`, `already_linked`, `account_limit`, `admin_restricted`, `session_required`, `server_error`. When Google sign-in is unconfigured the endpoint redirects with `auth_error=not_configured` rather than rendering an error page.
+`AuthErrorCode` values: `access_denied`, `not_invited`, `not_configured`, `state_mismatch`, `scope_denied`, `already_linked`, `account_mismatch`, `account_limit`, `admin_restricted`, `session_required`, `server_error`. When Google sign-in is unconfigured the endpoint redirects with `auth_error=not_configured` rather than rendering an error page.
+
+Two things the UI relies on:
+
+- **Login does not connect.** `mode=login` requests identity scopes only and creates no `Connection`. A newly signed-in user has an empty `connections` list and is shown a "connect your first account" screen; Gmail, Calendar and Tasks scopes are requested by `mode=connect`.
+- **Every failure is a redirect.** Because this is a page navigation, the endpoint should never answer with a JSON error body. A demo session, a missing session for `mode=connect`, and an unknown `accountId` redirect with `auth_error` (`session_required` or `server_error`). The UI does not offer Google sign-in or linking from inside a demo session.
 
 ### `POST /api/auth/logout`
 
@@ -211,7 +216,7 @@ Drafts are real Gmail drafts owned by one account.
 
 - `GET /api/drafts` — `ListResult<Draft>`, newest first. Optional `accountId`, `threadId`.
 - `POST /api/drafts` — `DraftCreateRequest` → `201 Draft`. The client always sends explicit recipients, subject and body (including quoted text). For `reply`, `reply_all` and `forward` the server sets Gmail's `threadId`, `In-Reply-To` and `References` from `threadId` + `inReplyToMessageId`, and answers `422` if the thread belongs to a different account. `addAttachments` carries base64 content; the decoded total must not exceed `capabilities.limits.attachmentBytesPerMessage` (`413 too_large`).
-- `PATCH /api/drafts/:id` — `DraftUpdateRequest` → `Draft`. `version` is required. If the stored version differs (for example the draft was edited in Gmail) the server answers `409 conflict` with `details.current` set to the latest `Draft`, unless `force` is true. Editing a draft whose send is `pending_approval` or `scheduled` moves its action to `needs_review` and the draft back to `draft`.
+- `PATCH /api/drafts/:id` — `DraftUpdateRequest` → `Draft`. `version` is required. If the stored version differs (for example the draft was edited in Gmail) the server answers `409 conflict`, ideally with `details.current` set to the latest `Draft`, unless `force` is true. When `details.current` is absent the client re-reads the draft from `GET /api/drafts` to show the other version. Editing a draft whose send is `pending_approval` or `scheduled` invalidates that approval (its action moves to `needs_review`) and the draft returns to `draft`.
 - `DELETE /api/drafts/:id` → `Deleted`. Cancels any pending send action for it.
 
 How the client fills reply recipients (the server should apply the same rules when the assistant drafts):
@@ -262,7 +267,7 @@ For all-day events `start`/`end` are dates and `end` is exclusive (a one-day eve
 
 - `GET /api/tasks` — `TaskListQuery` → `ListResult<Task>` ordered by list, then `position`. `status` defaults to `open`. Subtasks are returned flat with `parentId`.
 - `POST /api/tasks` — `TaskCreateRequest` → `201 Task`. `source` stores provenance in the app and appends the source URL to `notes` in Google.
-- `PATCH /api/tasks/:id` — `TaskUpdateRequest` → `Task`. `completed: true|false` completes or reopens. `taskListId` moves within the same account. `previousId` reorders. `due` is a date only. `reminderAt` is an app reminder and is not written to Google.
+- `PATCH /api/tasks/:id` — `TaskUpdateRequest` → `Task`. `completed: true|false` completes or reopens. `previousId` reorders. `due` is a date only. `reminderAt` is an app reminder and is not written to Google. `taskListId` (move to another list of the same account) is reserved: a server that does not support it answers `422`, and the current UI does not offer it.
 - `DELETE /api/tasks/:id` → `Deleted`.
 - `GET /api/task-lists` → `ListResult<TaskList>`; `POST` `{ accountId, title }` → `201 TaskList`; `PATCH /api/task-lists/:id` `{ title }` → `TaskList`; `DELETE /api/task-lists/:id` → `Deleted` (`409 conflict` for an account's default list).
 
@@ -292,16 +297,18 @@ Edits Google refuses on assigned tasks answer `403 forbidden` with an explanator
 
 ```
 proposed ──approve──▶ approved ─▶ queued ─▶ running ─▶ succeeded
-    │                     │          │                 └▶ failed
-    └──reject──▶ rejected └──cancel──┴──▶ canceled     └▶ needs_review ──approve/cancel──▶ …
+    │                     │          │                 ├▶ failed        (known not to have happened)
+    └──reject──▶ rejected └──cancel──┴──▶ canceled     └▶ needs_review  (paused) ──reject──▶ rejected
 ```
 
 - `GET /api/actions` — `ActionListQuery`. `status=pending` (proposed + needs_review), `scheduled` (approved + queued + running), `done` (succeeded + failed + canceled + rejected). Newest first.
-- `POST /api/actions/:id/approve` — body `{ contentHash }`. The hash must equal the stored one, else `409 conflict` with `details.action` holding the current `Action` so the user can review the new content. Allowed from `proposed` and `needs_review`. Returns the action in its new state; immediate actions may already be `succeeded` or `failed`.
-- `POST /api/actions/:id/reject` — body `{ reason? }`. Allowed from `proposed` and `needs_review` → `rejected`.
+- `POST /api/actions/:id/approve` — body `{ contentHash }`. Allowed only from `proposed`. The hash must equal the stored one, else `409 conflict`; when the content changed, `details.action` holds the current `Action` so the client can show it for a fresh decision. Returns the action in its new state; immediate actions may already be `succeeded`, `failed` or `needs_review`.
+- `POST /api/actions/:id/reject` — body `{ reason? }`. Allowed from `proposed` and `needs_review` → `rejected`. For `needs_review` this is how the user dismisses it after checking Google.
 - `POST /api/actions/:id/cancel` — allowed from `approved` and `queued` → `canceled`. `409 conflict` once the action is `running` or finished; the response message says what actually happened.
 
-Multi-step actions report each step in `steps`. `result.url` links to the created Google resource. A send whose outcome is uncertain is `needs_review`, never silently retried.
+`needs_review` means the action is paused and will not run: either the provider did not confirm the outcome (for example a send that timed out), or its content changed after it was prepared (for example the draft was edited). `error.message` says which. It is never retried and cannot be approved again: the user checks Google if something may have happened, dismisses it, and prepares a new action if it is still needed. Nothing is ever sent from changed content.
+
+Multi-step actions report each step in `steps`. `result.url` links to the created Google resource.
 
 ## 10. Connections
 

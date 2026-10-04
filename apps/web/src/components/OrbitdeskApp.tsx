@@ -16,7 +16,10 @@ const AUTH_ERRORS: Record<string, string> = {
   state_mismatch: 'That sign-in attempt expired or was opened in another tab. Start again from here.',
   scope_denied:
     'Google returned without the permissions Orbitdesk needs. Try again and leave the requested boxes ticked.',
-  already_linked: 'That Google account is already linked to a different Orbitdesk workspace.',
+  already_linked:
+    'Google returned a different account than the one expected. When reconnecting, choose the same account again; an account can also only be linked to one workspace.',
+  account_mismatch:
+    'That is not the account being reconnected. Start again and choose the same Google account on Google’s screen.',
   account_limit: 'This workspace has reached its limit of connected accounts.',
   admin_restricted:
     'The Google Workspace administrator for that account blocks this app or one of its permissions. Ask them to allow it, then try again.',

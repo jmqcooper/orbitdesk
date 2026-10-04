@@ -1699,6 +1699,7 @@ input[type='radio'] {
   align-items: center;
   gap: 9px;
   flex: 1;
+  min-width: 0;
   max-width: 520px;
   height: 34px;
   padding: 0 8px 0 10px;
@@ -1712,6 +1713,10 @@ input[type='radio'] {
 
 .searchbar:hover {
   border-color: var(--text-3);
+}
+
+.topbar__compose {
+  flex-shrink: 0;
 }
 
 .searchbar__text {

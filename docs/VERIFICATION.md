@@ -17,12 +17,18 @@ The collaborative browser was used to perform these actions through the interfac
 - Queue that exact message for approval, inspect its recipients/body, approve it, and see successful sandbox delivery in History.
 - Ask the live model to find Alex Morgan’s Studio email, read it, and prepare a follow-up task linked to that email. The run made four successful tool calls. Approve the task and verify it appears in Studio with the source link.
 - Create, edit and delete a calendar event; find open times across eight calendars.
+- Recheck availability before booking. An edited time overlapping an existing event was blocked without a create request; a free time passed the same check and saved.
 - Create and complete a task.
 - Create, rename and trash a document.
 - Schedule a sandbox email for a near-future time. Verify it moves from Queued to Done through the deployed Railway worker without another send request.
-- Check the 390-pixel phone layout: document width matches the viewport, account navigation opens, and the account list scrolls independently of its footer.
+- Rebuild the morning brief with the live model. Check that its meeting times match the Calendar view in Europe/Amsterdam.
+- Schedule a daily brief for 04:29 Europe/Amsterdam. The Railway worker completed it, saved a four-tool, read-only conversation and updated Today with the new brief. Turn the test automation off afterward.
+- Disable assistant access for one account and verify its assistant selector is disabled. Restore access and verify the next brief includes all 12 accounts.
+- Check the 390-pixel phone layout: document width matches the viewport, account navigation opens, and the account list scrolls independently of its footer. Check the search and Compose controls at 320 pixels too; both remain inside the viewport.
 
 The hosted assistant also passed direct live Vertex AI probes. The runtime uses Gemini; Claude Opus 5.5 with extra-high reasoning designed the API contract and frontend using the requested Claude CLI.
+
+The phone check used the desktop browser at a 390-pixel viewport. Native device verification was unavailable: the device host reported no iOS simulators, and Android SDK command-line tools were missing.
 
 ## Deployment
 

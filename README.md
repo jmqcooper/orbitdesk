@@ -6,6 +6,8 @@ One desk for every Google account. Orbitdesk brings Gmail threads, calendars, ta
 
 The public sandbox creates a separate workspace for every visitor, with 12 simulated accounts and 8 calendars. Its assistant uses a real language model. Sandbox email sends and Google mutations are simulated; they never affect real accounts.
 
+![Orbitdesk Today page with a live assistant brief and simulated Google accounts](docs/images/orbitdesk.png)
+
 ## Features
 
 - Account-specific permissions, sending identities, signatures and assistant access.

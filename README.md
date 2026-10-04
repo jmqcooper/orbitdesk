@@ -2,7 +2,7 @@
 
 One desk for every Google account. Orbitdesk brings Gmail threads, calendars, tasks and files together, with an assistant that reads the accounts you choose and prepares concrete changes for review.
 
-**[Open the app](https://web-production-cbebe.up.railway.app)** · **[Full product scope](MVP-SCOPE.md)** · **[API contract](docs/API-CONTRACT.md)**
+**[Open the app](https://web-production-cbebe.up.railway.app)** · **[Full product scope](MVP-SCOPE.md)** · **[API contract](docs/API-CONTRACT.md)** · **[Verification record](docs/VERIFICATION.md)**
 
 The public sandbox creates a separate workspace for every visitor, with 12 simulated accounts and 8 calendars. Its assistant uses a real language model. Sandbox email sends and Google mutations are simulated; they never affect real accounts.
 

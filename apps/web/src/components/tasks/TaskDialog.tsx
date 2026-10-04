@@ -3,7 +3,7 @@
 import { ExternalLink, Link2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { api, ApiRequestError, toApiError } from '@/lib/api';
-import { parseDate, safeHref, toDateTimeInput, toIso } from '@/lib/format';
+import { safeHref, toIso } from '@/lib/format';
 import { invalidate } from '@/lib/hooks';
 import type { Id, SourceRef, Task } from '@/lib/types';
 import { AccountBadge, useApp } from '../AppContext';
@@ -54,10 +54,6 @@ export function TaskDialog({
   const [notes, setNotes] = useState(task?.notes ?? initial?.notes ?? '');
   const [due, setDue] = useState(task?.due ?? initial?.due ?? '');
   const [taskListId, setTaskListId] = useState<Id>(pickList);
-  const [reminder, setReminder] = useState(() => {
-    const date = parseDate(task?.reminderAt);
-    return date ? toDateTimeInput(date) : '';
-  });
   const [busy, setBusy] = useState<null | 'save' | 'delete'>(null);
   const [error, setError] = useState<ApiRequestError | null>(null);
 
@@ -69,8 +65,7 @@ export function TaskDialog({
     if (!title.trim() || !taskListId) return;
     setBusy('save');
     setError(null);
-    const reminderDate = reminder ? new Date(reminder) : null;
-    const reminderAt = reminderDate && !Number.isNaN(reminderDate.getTime()) ? toIso(reminderDate) : null;
+    const reminderAt = task?.reminderAt ?? null;
     try {
       const saved = task
         ? await api.updateTask(task.id, {
@@ -194,9 +189,7 @@ export function TaskDialog({
         <Field label="Notes">
           <textarea className="input input--area" rows={4} value={notes ?? ''} onChange={(e) => setNotes(e.target.value)} />
         </Field>
-        <Field label="Orbitdesk reminder" hint="Optional. Kept in Orbitdesk and separate from the Google due date.">
-          <input className="input" type="datetime-local" value={reminder} onChange={(e) => setReminder(e.target.value)} />
-        </Field>
+
 
         {source && (
           <div className="sourceline">

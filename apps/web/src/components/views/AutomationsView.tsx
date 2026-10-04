@@ -38,7 +38,7 @@ const TEMPLATES: TemplateMeta[] = [
     icon: BellRing,
     name: 'Follow-up reminders',
     blurb:
-      'Notices threads you sent that have had no reply and lists them under “Waiting on others”. You decide whether to write again.',
+      'Prepares follow-up suggestions in Assistant for sent threads that have had no reply. You decide whether to write again.',
     outcome: 'Reminds inside Orbitdesk. It never sends an email.',
     defaultTime: '09:00',
     defaultDays: [1, 2, 3, 4, 5],

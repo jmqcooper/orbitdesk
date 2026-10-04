@@ -1,0 +1,82 @@
+import type { Action } from '@prisma/client';
+import { db, json, object } from './db';
+import { AppError, hashPayload, sha256 } from './security';
+import { type Context, connection, resource, put, activity } from './store';
+import * as views from './views';
+import * as work from './workspace';
+import * as V from './validation';
+import { api, enc, hydrateDraft } from './google';
+import { validateDocumentOperation, writeDocument } from './documents';
+
+export async function propose(ctx:Context,type:string,input:any,meta:{conversationId?:string;automationId?:string;origin?:string;title?:string}={}) {
+  let accountId:string|null=null,preview:any,title=meta.title||'',normalized:any=input;
+  if(type==='send_email') {
+    const r=await resource(ctx,V.id.parse(input.draftId),'draft'),d=views.draftView(r);const c=await connection(ctx,r.connectionId);work.assertScope(c,'mail',ctx);
+    if(!d.to.length&&!d.cc.length&&!d.bcc.length)throw new AppError('validation_failed','Add a recipient before preparing a send.',422);
+    if(input.version&&input.version!==d.version)throw new AppError('conflict','The draft changed. Refresh it before sending.',409);
+    if(input.scheduleAt){V.instant.parse(input.scheduleAt);if(Date.parse(input.scheduleAt)<=Date.now())throw new AppError('validation_failed','Choose a future send time.',422);}
+    const stored=object(r.data);accountId=c.id;normalized={draftId:r.id,version:d.version,raw:stored._raw,providerDraftId:r.providerId,providerThreadId:stored._providerThreadId||null,threadId:d.threadId,scheduleAt:input.scheduleAt||null};
+    if(!normalized.raw)throw new AppError('conflict','Refresh this draft before sending it.',409);
+    preview={kind:type,draftId:r.id,mode:d.mode,threadId:d.threadId,from:d.from,to:d.to,cc:d.cc,bcc:d.bcc,subject:d.subject,bodyText:d.bodyText,attachments:d.attachments.map(a=>({filename:a.filename,size:a.size}))};title||=`Send “${d.subject||'(No subject)'}”`;
+  } else if(type==='create_event'||type==='update_event') {
+    const r=type==='update_event'?await resource(ctx,V.id.parse(input.eventId),'event'):null;const current=r?views.eventView(r):null;
+    normalized=type==='create_event'?V.eventCreate.parse(input):{eventId:r!.id,...V.eventUpdate.parse(input)};
+    const v={...current,...normalized};const cal=await resource(ctx,v.calendarId,'calendar'),cv=views.calendarView(cal);accountId=cal.connectionId;work.assertScope(await connection(ctx,accountId),'calendar',ctx);if(!['owner','writer'].includes(cv.accessRole)||current&&!current.canEdit)throw new AppError('forbidden','This calendar is read-only for the selected account.',403);
+    if(!v.start||!v.end||Date.parse(v.end)<=Date.parse(v.start))throw new AppError('validation_failed','Choose a valid event start and end.',422);
+    preview={kind:type,eventId:r?.id||null,calendarId:cal.id,calendarName:cv.name,title:v.title,allDay:v.allDay,start:v.start,end:v.end,timezone:v.timezone||cv.timezone,location:v.location||null,description:v.description||null,attendees:(v.attendees||[]).map((a:any)=>({email:a.email,name:a.name||null})),addMeet:!!v.addMeet,recurrence:v.recurrence||null,notifiesAttendees:v.notify!==false&&!!v.attendees?.length,changes:current?Object.keys(normalized).filter(k=>k!=='eventId'&&JSON.stringify((current as any)[k])!==JSON.stringify(normalized[k])).map(k=>({field:k,from:JSON.stringify((current as any)[k]??null),to:JSON.stringify(normalized[k]??null)})):[]};title||=`${r?'Update':'Create'} “${v.title}”`;
+  } else if(type==='cancel_event'||type==='rsvp_event') {
+    const r=await resource(ctx,V.id.parse(input.eventId),'event'),e=views.eventView(r),cal=await resource(ctx,e.calendarId,'calendar');accountId=r.connectionId;work.assertScope(await connection(ctx,accountId),'calendar',ctx);
+    if(type==='cancel_event'){if(!e.canEdit)throw new AppError('forbidden','This account cannot cancel the event.',403);normalized={eventId:r.id,scope:input.scope==='series'?'series':'this',notify:input.notify!==false};preview={kind:type,eventId:r.id,calendarName:views.calendarView(cal).name,title:e.title,allDay:e.allDay,start:e.start,end:e.end,scope:normalized.scope,attendees:e.attendees,notifiesAttendees:normalized.notify};title||='Cancel “'+e.title+'”';}
+    else{if(!e.canRsvp)throw new AppError('forbidden','This account is not an attendee.',403);const {z}=await import('zod');normalized={eventId:r.id,response:z.enum(['accepted','tentative','declined']).parse(input.response),scope:input.scope==='series'?'series':'this',comment:z.string().max(1000).optional().parse(input.comment)};preview={kind:type,eventId:r.id,title:e.title,allDay:e.allDay,start:e.start,end:e.end,organizer:e.organizer,response:normalized.response,comment:normalized.comment||null};title||=`RSVP ${normalized.response}: ${e.title}`;}
+  } else if(['create_task','update_task','delete_task'].includes(type)) {
+    const r=type!=='create_task'?await resource(ctx,V.id.parse(input.taskId),'task'):null,current=r?views.taskView(r):null;
+    normalized=type==='create_task'?V.taskCreate.parse(input):type==='update_task'?{taskId:r!.id,...V.taskUpdate.parse(input)}:{taskId:r!.id};const v={...current,...normalized},l=await resource(ctx,v.taskListId,'taskList');accountId=l.connectionId;work.assertScope(await connection(ctx,accountId),'tasks',ctx);if(r&&r.connectionId!==accountId)throw new AppError('validation_failed','Task and list must belong to the same account.',422);
+    if(v.source){const s=await resource(ctx,v.source.id);normalized.source=views.sourceView(s);v.source=normalized.source;}
+    preview={kind:type,taskId:r?.id||null,taskListId:l.id,taskListTitle:views.taskListView(l).title,title:v.title,notes:v.notes||null,due:v.due||null,source:v.source||null,changes:current?Object.keys(normalized).filter(k=>k!=='taskId').map(k=>({field:k,from:JSON.stringify((current as any)[k]??null),to:JSON.stringify(normalized[k]??null)})):[]};title||=`${type==='delete_task'?'Delete':r?'Update':'Create'} task: ${v.title}`;
+  } else if(type==='modify_threads') {
+    const {z}=await import('zod');const ids=z.array(V.id).min(1).max(50).parse(input.threadIds),v=V.threadAction.parse(input);const ts=await Promise.all(ids.map(id=>resource(ctx,id,'thread')));const accountIds=new Set(ts.map(t=>t.connectionId));if(accountIds.size!==1)throw new AppError('validation_failed','Prepare one mailbox at a time for bulk changes.',422);accountId=ts[0].connectionId;normalized={threadIds:ids,...v};preview={kind:type,operation:v.action,addLabels:v.addLabelIds||[],removeLabels:v.removeLabelIds||[],count:ids.length,threads:ts.map(t=>({id:t.id,subject:views.threadView(t).subject,from:views.threadView(t).participants[0]||null}))};title||=`${v.action.replaceAll('_',' ')} ${ids.length} thread${ids.length===1?'':'s'}`;
+  } else if(type==='file_operation') {
+    if(!['create','rename','copy','trash'].includes(input.action))throw new AppError('validation_failed','Unknown file operation.',422);const r=input.action==='create'?null:await resource(ctx,V.id.parse(input.fileId),'file');accountId=r?.connectionId||V.id.parse(input.accountId);await connection(ctx,accountId);normalized=input;preview={kind:type,operation:input.action,fileId:r?.id||null,fileName:input.name||views.fileView(r!).name,fields:Object.entries(input).filter(([k])=>!['fileId','accountId'].includes(k)).map(([k,v])=>({label:k,value:String(v)}))};title||=`${input.action}: ${preview.fileName}`;
+  } else if(type==='other') {
+    const {v,r,c,f}=await validateDocumentOperation(ctx,input);accountId=c.id;normalized=v;preview={kind:'other',fields:[{label:'Operation',value:v.operation},{label:'Account',value:c.email},{label:'File',value:f.name},{label:'Exact change',value:JSON.stringify(v)}]};title||=`Update ${f.name}`;
+  } else throw new AppError('validation_failed','Unknown action type.',422);
+  if(accountId)await connection(ctx,accountId);
+  const payload=JSON.parse(JSON.stringify({input:normalized,preview,conversationId:meta.conversationId||null,automationId:meta.automationId||null}));
+  const action=await db.action.create({data:{workspaceId:ctx.workspace.id,connectionId:accountId,type,title,description:meta.origin==='automation'?'Suggested by an automation':'Review the exact change before approving.',status:'proposed',payload:json(payload),payloadHash:hashPayload(payload),source:meta.origin||'agent',scheduledAt:type==='send_email'&&normalized.scheduleAt?new Date(normalized.scheduleAt):null}});
+  await activity(ctx,'action.proposed',title,{actionId:action.id},accountId||undefined);return action;
+}
+export async function approve(ctx:Context,id:string,contentHash:string) {
+  const a=await db.action.findFirst({where:{id,workspaceId:ctx.workspace.id}});if(!a)throw new AppError('not_found','Action not found.',404);if(a.connectionId)await connection(ctx,a.connectionId);
+  if(!['proposed','needs_review'].includes(a.status))throw new AppError('conflict','This action has already been decided.',409);
+  if(a.payloadHash!==contentHash||hashPayload(a.payload)!==contentHash)throw new AppError('conflict','The preview changed. Review the current action.',409);
+  if(a.status==='needs_review')throw new AppError('conflict','Prepare a fresh action after checking the provider. An uncertain action cannot be retried blindly.',409);
+  const changed=await db.action.updateMany({where:{id,workspaceId:ctx.workspace.id,status:'proposed',payloadHash:contentHash},data:{status:a.scheduledAt?'queued':'approved',approvedAt:new Date(),approvedBy:ctx.user.id,error:null}});if(!changed.count)throw new AppError('conflict','Another request already decided this action.',409);
+  const {enqueueAction}=await import('./jobs');await enqueueAction(id,a.scheduledAt||undefined);
+  if(!a.scheduledAt||a.scheduledAt<=new Date())await execute(id);
+  return views.actionView((await db.action.findUnique({where:{id}}))!);
+}
+export async function decide(ctx:Context,id:string,decision:'reject'|'cancel') {const a=await db.action.findFirst({where:{id,workspaceId:ctx.workspace.id}});if(!a)throw new AppError('not_found','Action not found.',404);const allowed=decision==='reject'?['proposed','needs_review']:['proposed','approved','queued','needs_review'];const changed=await db.action.updateMany({where:{id,workspaceId:ctx.workspace.id,status:{in:allowed}},data:{status:decision==='reject'?'rejected':'canceled',completedAt:new Date()}});if(!changed.count)throw new AppError('conflict','This action is running or has already finished.',409);await activity(ctx,'action.'+decision,a.title,{actionId:id});return views.actionView((await db.action.findUnique({where:{id}}))!);}
+export async function prepareSend(ctx:Context,id:string,input:unknown) {const v=V.draftSend.parse(input);let draft=await resource(ctx,id,'draft');const c=await connection(ctx,draft.connectionId);if(!ctx.workspace.demo)draft=await hydrateDraft(c,draft.providerId);
+  if(v.scheduleAt&&Date.parse(v.scheduleAt)<=Date.now())throw new AppError('validation_failed','Choose a send time in the future.',422);
+  if(await db.action.count({where:{workspaceId:ctx.workspace.id,status:{in:['approved','queued','running']},payload:{path:['input','draftId'],equals:id}}}))throw new AppError('conflict','This draft already has a send queued.',409);
+  let a=await propose(ctx,'send_email',{draftId:id,version:v.version,scheduleAt:v.scheduleAt},{origin:'user'});
+  const d=object(draft.data);await db.resource.update({where:{id},data:{data:json({...d,status:v.intent==='preview'?'pending_approval':v.scheduleAt?'scheduled':'sending',actionId:a.id,scheduledAt:v.scheduleAt||null})}});
+  const action=v.intent==='send'?await approve(ctx,a.id,a.payloadHash):views.actionView(a);const latest=await db.resource.findFirst({where:{id,workspaceId:ctx.workspace.id}});return {action,draft:latest?views.draftView(latest):null};
+}
+async function runSend(ctx:Context,a:Action,input:any) {let r=await resource(ctx,input.draftId,'draft');const c=await connection(ctx,r.connectionId);work.assertScope(c,'mail',ctx);if(!ctx.workspace.demo)r=await hydrateDraft(c,r.providerId);
+  if(r.version!==input.version||sha256(String(object(r.data)._raw))!==sha256(String(input.raw)))throw new AppError('conflict','The draft changed after approval. Nothing was sent.',409);
+  if(ctx.workspace.demo){const d=views.draftView(r);let thread=r.parentId?await resource(ctx,r.parentId,'thread'):null;const msg={id:randomId(),from:d.from,to:d.to,cc:d.cc,bcc:d.bcc,subject:d.subject,sentAt:new Date().toISOString(),date:new Date().toISOString(),bodyText:d.bodyText,bodyHtml:null,outgoing:true,attachments:d.attachments,_messageId:randomId()};const data=thread?object(thread.data):{subject:d.subject,participants:d.to,messages:[]};await put(c,'thread',thread?.providerId||randomId(),{...data,messages:[...(data.messages as any[]||[]),msg],labels:['SENT'],messageCount:(data.messages as any[]||[]).length+1,unread:false,inInbox:false,lastMessageAt:msg.sentAt,snippet:d.bodyText.slice(0,160)});await db.resource.delete({where:{id:r.id}});return {message:'Sent in the sandbox. No real email was delivered.',url:null};}
+  const sent=await api(c,'gmail/drafts/send',{method:'POST',body:JSON.stringify({id:input.providerDraftId,message:{raw:input.raw,...(input.providerThreadId?{threadId:input.providerThreadId}:{})}})});await db.resource.deleteMany({where:{id:r.id}});return {message:'Email sent.',url:`https://mail.google.com/mail/u/${enc(c.email)}/#sent/${sent.threadId}`};
+}
+const randomId=()=>crypto.randomUUID();
+export async function execute(id:string) {
+  const now=new Date();const claimed=await db.action.updateMany({where:{id,status:{in:['approved','queued']},approvedAt:{not:null},OR:[{scheduledAt:null},{scheduledAt:{lte:now}}]},data:{status:'running',leaseUntil:new Date(Date.now()+120000),attempts:{increment:1}}});if(!claimed.count)return;
+  const a=(await db.action.findUnique({where:{id}}))!,workspace=await db.workspace.findUnique({where:{id:a.workspaceId},include:{owner:true}});if(!workspace)return;
+  const {owner,...ws}=workspace,ctx:Context={user:owner,workspace:ws};const p=object(a.payload),input=object(p.input);
+  try{
+    if(!a.approvedAt||a.payloadHash!==hashPayload(a.payload))throw new AppError('conflict','This action is not bound to an approved preview.',409);if(a.type==='send_email'&&(a.scheduledAt?.getTime()||null)!==(input.scheduleAt?Date.parse(input.scheduleAt as string):null))throw new AppError('conflict','The approved send time changed.',409);if(a.connectionId)await connection(ctx,a.connectionId);
+    let result:any;
+    switch(a.type){case 'send_email':result=await runSend(ctx,a,input);break;case 'create_event':result=await work.createEvent(ctx,input,a.id);break;case 'update_event':result=await work.updateEvent(ctx,input.eventId as string,input);break;case 'cancel_event':result=await work.deleteEvent(ctx,input.eventId as string,input.scope as string,input.notify as boolean);break;case 'rsvp_event':result=await work.rsvpEvent(ctx,input.eventId as string,input);break;case 'create_task':result=await work.createTask(ctx,input);break;case 'update_task':result=await work.updateTask(ctx,input.taskId as string,input);break;case 'delete_task':result=await work.deleteTask(ctx,input.taskId as string);break;case 'modify_threads':{result=[];for(const id of input.threadIds as string[])result.push(await work.modifyThread(ctx,id,input));break;}case 'file_operation':result=await work.fileOperation(ctx,input);break;case 'other':result=await writeDocument(ctx,input,a.id);break;default:throw new AppError('validation_failed','Unknown action type.',422);}
+    await db.action.update({where:{id},data:{status:'succeeded',result:json({message:result?.message||'Completed successfully.',url:result?.url||null,resource:result}),completedAt:new Date(),leaseUntil:null,error:null}});await activity(ctx,'action.succeeded',a.title,{actionId:id},a.connectionId||undefined);
+  }catch(e){const err=e as Error;const predictable=e instanceof AppError&&['conflict','validation_failed','forbidden','permission_missing','not_found','reconnect_required'].includes(e.code.toLowerCase());await db.action.update({where:{id},data:{status:predictable?'failed':'needs_review',error:predictable?err.message:'The provider did not confirm the outcome. Check Google before preparing another action.',leaseUntil:null,completedAt:new Date()}});await activity(ctx,'action.failed',a.title,{actionId:id},a.connectionId||undefined);}
+}

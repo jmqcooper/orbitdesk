@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  name String
+  googleSub String? @unique
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  workspaces Workspace[]
+  sessions Session[]
+}
+model Workspace {
+  id String @id @default(cuid())
+  ownerId String
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name String @default("My workspace")
+  demo Boolean @default(false)
+  settings Json @default("{}")
+  createdAt DateTime @default(now())
+  connections Connection[]
+  resources Resource[]
+  actions Action[]
+  automations Automation[]
+  messages AgentMessage[]
+  activities Activity[]
+  usage Usage[]
+  @@index([ownerId])
+}
+model Session {
+  id String @id @default(cuid())
+  tokenHash String @unique
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId])
+}
+model OAuthState {
+  id String @id
+  userId String?
+  workspaceId String?
+  mode String
+  verifier String
+  nonce String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+model Connection {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  googleSub String
+  email String
+  name String
+  label String
+  color String
+  status String @default("connected")
+  credentials String?
+  scopes String[]
+  settings Json @default("{}")
+  syncState Json @default("{}")
+  lastSyncAt DateTime?
+  error String?
+  createdAt DateTime @default(now())
+  resources Resource[]
+  @@unique([workspaceId, googleSub])
+  @@index([workspaceId, status])
+}
+model Resource {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connectionId String
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  kind String
+  providerId String
+  parentId String?
+  data Json
+  version String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([connectionId, kind, providerId])
+  @@index([workspaceId, kind, updatedAt])
+  @@index([workspaceId, parentId, kind])
+}
+model Action {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connectionId String?
+  type String
+  title String
+  description String
+  status String @default("proposed")
+  payload Json
+  payloadHash String
+  result Json?
+  error String?
+  source String @default("user")
+  sourceIds String[]
+  scheduledAt DateTime?
+  approvedAt DateTime?
+  approvedBy String?
+  leaseUntil DateTime?
+  attempts Int @default(0)
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([workspaceId, status, createdAt])
+  @@index([status, scheduledAt])
+}
+model Automation {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name String
+  type String
+  enabled Boolean @default(true)
+  config Json
+  nextRunAt DateTime
+  lastRunAt DateTime?
+  leaseUntil DateTime?
+  lastError String?
+  createdAt DateTime @default(now())
+  @@index([enabled, nextRunAt])
+}
+model AgentMessage {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversationId String
+  role String
+  content String
+  metadata Json @default("{}")
+  createdAt DateTime @default(now())
+  @@index([workspaceId, conversationId, createdAt])
+}
+model Activity {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor String
+  type String
+  title String
+  connectionId String?
+  resourceId String?
+  detail Json @default("{}")
+  createdAt DateTime @default(now())
+  @@index([workspaceId, createdAt])
+}
+model Usage {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  kind String
+  inputTokens Int @default(0)
+  outputTokens Int @default(0)
+  count Int @default(1)
+  createdAt DateTime @default(now())
+  @@index([workspaceId, createdAt])
+}
+model WorkerHeartbeat {
+  id String @id
+  lastSeenAt DateTime @default(now())
+  detail Json @default("{}")
+}

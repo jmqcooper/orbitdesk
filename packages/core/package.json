@@ -1,0 +1,40 @@
+{
+  "name": "@orbitdesk/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts"
+  },
+  "scripts": {
+    "db:generate": "node --env-file-if-exists=../../.env node_modules/prisma/build/index.js generate",
+    "db:migrate": "node --env-file-if-exists=../../.env node_modules/prisma/build/index.js migrate deploy",
+    "db:seed": "node --env-file-if-exists=../../.env --import tsx src/seed-cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.0",
+    "@ai-sdk/google": "^3.0.0",
+    "@ai-sdk/google-vertex": "^4.0.210",
+    "@prisma/client": "^6.19.0",
+    "ai": "^6.0.0",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "google-auth-library": "^10.5.0",
+    "googleapis": "^171.0.0",
+    "mailparser": "^3.9.0",
+    "nodemailer": "^8.0.0",
+    "pg-boss": "^12.0.0",
+    "prisma": "^6.19.0",
+    "rrule": "^2.8.1",
+    "sanitize-html": "^2.17.0",
+    "zod": "^4.3.0"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.6",
+    "@types/nodemailer": "^7.0.0",
+    "@types/sanitize-html": "^2.16.0",
+    "tsx": "^4.20.6"
+  }
+}

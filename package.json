@@ -1,0 +1,18 @@
+{
+  "name": "orbitdesk",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.18.0",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "dev": "pnpm --filter @orbitdesk/web dev",
+    "build": "pnpm --filter @orbitdesk/web build && pnpm --filter @orbitdesk/worker build",
+    "test": "vitest run",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @orbitdesk/core db:generate",
+    "db:migrate": "pnpm --filter @orbitdesk/core db:migrate",
+    "db:seed": "pnpm --filter @orbitdesk/core db:seed"
+  },
+  "devDependencies": { "typescript": "^5.9.3", "tsx": "^4.20.6", "vitest": "^3.2.4", "@types/node": "^24.0.0" }
+}
+

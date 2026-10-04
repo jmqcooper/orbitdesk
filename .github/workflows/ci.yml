@@ -1,0 +1,39 @@
+name: Verify
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: orbitdesk
+          POSTGRES_PASSWORD: orbitdesk
+          POSTGRES_DB: orbitdesk
+        ports: [5432:5432]
+        options: --health-cmd "pg_isready -U orbitdesk" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://orbitdesk:orbitdesk@localhost:5432/orbitdesk
+      APP_URL: http://localhost:3100
+      SESSION_SECRET: test-only-session-secret-longer-than-32-characters
+      TOKEN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      ENABLE_DEMO: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm db:migrate
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build

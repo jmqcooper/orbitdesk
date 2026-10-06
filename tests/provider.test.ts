@@ -2,8 +2,8 @@ import '../packages/core/src/config';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { db, json, object } from '../packages/core/src/db';
 import { createDemo } from '../packages/core/src/seed';
-import { connections, type Context } from '../packages/core/src/store';
-import { createDraft, gapList } from '../packages/core/src/workspace';
+import { connections, resources, type Context } from '../packages/core/src/store';
+import { createDraft, gapList, getThreads } from '../packages/core/src/workspace';
 import { propose, approve, execute, prepareSend } from '../packages/core/src/actions';
 import { encrypt } from '../packages/core/src/security';
 import { stopQueue } from '../packages/core/src/jobs';
@@ -24,6 +24,26 @@ describe('real-provider execution boundaries',()=>{
 });
 describe('OAuth state and PKCE',()=>{
   it('uses minimal login scopes and a proper base64url PKCE challenge',async()=>{const oldId=process.env.GOOGLE_CLIENT_ID,oldSecret=process.env.GOOGLE_CLIENT_SECRET;process.env.GOOGLE_CLIENT_ID='test-client.apps.googleusercontent.com';process.env.GOOGLE_CLIENT_SECRET='test-secret';try{const start=await beginOAuth(new Request('http://localhost:3100/api/auth/google?mode=login'));const url=new URL(start.headers.get('location')!);expect(url.searchParams.get('scope')).toBe('openid email profile');expect(url.searchParams.get('code_challenge')).toMatch(/^[a-zA-Z0-9_-]{43}$/);expect(url.searchParams.get('code_challenge_method')).toBe('S256');expect(url.searchParams.get('nonce')).toBeTruthy();const state=url.searchParams.get('state')!,bad=await finishOAuth(new Request('http://localhost:3100/api/auth/callback?state='+state+'&code=fake',{headers:{cookie:'orbitdesk_oauth=forged'}}));expect(bad.headers.get('location')).toContain('state_mismatch');const cancel=await finishOAuth(new Request('http://localhost:3100/api/auth/callback?state='+state+'&error=access_denied',{headers:{cookie:'orbitdesk_oauth='+state}}));expect(cancel.headers.get('location')).toContain('access_denied');const replay=await finishOAuth(new Request('http://localhost:3100/api/auth/callback?state='+state+'&error=access_denied',{headers:{cookie:'orbitdesk_oauth='+state}}));expect(replay.headers.get('location')).toContain('state_mismatch');}finally{if(oldId)process.env.GOOGLE_CLIENT_ID=oldId;else delete process.env.GOOGLE_CLIENT_ID;if(oldSecret)process.env.GOOGLE_CLIENT_SECRET=oldSecret;else delete process.env.GOOGLE_CLIENT_SECRET;}});
+});
+
+describe('live Gmail search',()=>{
+  it('reads each result page once and reuses cached matching conversations',async()=>{
+    const scoped={...ctx,connectionIds:[accountId]},cached=await resources(scoped,'thread');
+    const mock=vi.fn(async(input:any)=>{
+      const url=new URL(String(input));
+      if(!url.pathname.endsWith('/threads'))throw new Error('Cached search should not hydrate conversations');
+      return Response.json(url.searchParams.has('pageToken')?{threads:[{id:cached[1].providerId}]}:{threads:[{id:cached[0].providerId}],nextPageToken:'next'});
+    });vi.stubGlobal('fetch',mock);
+    try{const result=await getThreads(scoped,'from:sender@example.com','all');expect(result.gaps).toEqual([]);expect(result.items.map(t=>t.id).sort()).toEqual(cached.slice(0,2).map(t=>t.id).sort());expect(mock).toHaveBeenCalledTimes(2);}
+    finally{vi.unstubAllGlobals();}
+  });
+  it('loads matching older conversations that are absent from the cache',async()=>{
+    const scoped={...ctx,connectionIds:[accountId]},id='uncached-search-result';
+    const mock=vi.fn(async(input:any)=>String(input).includes('/threads?')?Response.json({threads:[{id}]}):Response.json({id,messages:[{id:'old-message',internalDate:'1600000000000',labelIds:[],payload:{mimeType:'text/plain',headers:[{name:'From',value:'Sender <sender@example.com>'},{name:'Subject',value:'Older search result'}],body:{data:Buffer.from('Older body').toString('base64url')}}}]}));
+    vi.stubGlobal('fetch',mock);
+    try{const result=await getThreads(scoped,'older_than:30d','all');expect(result.gaps).toEqual([]);expect(result.items).toHaveLength(1);expect(result.items[0].subject).toBe('Older search result');expect(mock).toHaveBeenCalledTimes(2);}
+    finally{vi.unstubAllGlobals();await db.resource.deleteMany({where:{connectionId:accountId,kind:'thread',providerId:id}});}
+  });
 });
 
 describe('Google quota handling',()=>{

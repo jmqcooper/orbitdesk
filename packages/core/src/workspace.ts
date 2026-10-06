@@ -28,11 +28,25 @@ export async function gapList(ctx:Context,area:T.ResourceKind):Promise<T.SourceG
 }
 export async function getThreads(ctx:Context,q='',folder='inbox',labelId?:string) {
   const gaps=await gapList(ctx,'mail');
-  if(q&&!ctx.workspace.demo){for(const c of await connections(ctx)){if(!scopeAvailable(c,'mail',ctx))continue;try{const matches=await pages(c,`gmail/threads?q=${enc(q)}&maxResults=100`,'threads');for(const m of matches.slice(0,100))await hydrateThread(c,m.id);}catch(e){gaps.push({accountId:c.id,resource:'mail',resourceId:null,code:'provider_error',message:(e as Error).message});}}}
+  const matching=new Set<string>();
+  if(q&&!ctx.workspace.demo){
+    const cachedKeys=new Set((await resources(ctx,'thread')).map(r=>`${r.connectionId}:${r.providerId}`));
+    for(const c of await connections(ctx)){
+      if(!scopeAvailable(c,'mail',ctx))continue;
+      try{
+        const matches=await pages(c,`gmail/threads?q=${enc(q)}&maxResults=100`,'threads');
+        for(const m of matches)matching.add(`${c.id}:${m.id}`);
+        // Google decides query membership. Reuse synced previews; opening a thread
+        // still fetches its current full conversation. Only older cache misses need reads.
+        const missing=matches.slice(0,100).filter(m=>!cachedKeys.has(`${c.id}:${m.id}`));
+        for(let i=0;i<missing.length;i+=4)await Promise.all(missing.slice(i,i+4).map(m=>hydrateThread(c,m.id)));
+      }catch(e){gaps.push({accountId:c.id,resource:'mail',resourceId:null,code:'provider_error',message:(e as Error).message});}
+    }
+  }
   const cached=await resources(ctx,'thread');let rows=cached.map(views.threadView);const bad=new Set(gaps.map(g=>g.accountId));rows=rows.filter(t=>!bad.has(t.accountId));
   rows=rows.filter(t=>folder==='trash'?t.trashed:!t.trashed&& (folder==='inbox'?t.inInbox:folder==='unread'?t.inInbox&&t.unread:folder==='starred'?t.starred:folder==='sent'?t.labelIds.includes('SENT'):true));
   if(labelId)rows=rows.filter(t=>t.labelIds.includes(labelId));
-  if(q){if(ctx.workspace.demo)rows=rows.filter(t=>matchesMailQuery(views.threadDetailView(cached.find(r=>r.id===t.id)!),q));else{const selected=new Set<string>();for(const c of await connections(ctx)){if(bad.has(c.id))continue;try{const ms=await pages(c,`gmail/threads?q=${enc(q)}&maxResults=100`,'threads');for(const m of ms){const r=await db.resource.findUnique({where:{connectionId_kind_providerId:{connectionId:c.id,kind:'thread',providerId:m.id}}});if(r)selected.add(r.id);}}catch{}}rows=rows.filter(t=>selected.has(t.id));}}
+  if(q){if(ctx.workspace.demo)rows=rows.filter(t=>matchesMailQuery(views.threadDetailView(cached.find(r=>r.id===t.id)!),q));else{const selected=new Set(cached.filter(r=>matching.has(`${r.connectionId}:${r.providerId}`)).map(r=>r.id));rows=rows.filter(t=>selected.has(t.id));}}
   rows.sort((a,b)=>b.lastMessageAt.localeCompare(a.lastMessageAt));return list(rows,gaps);
 }
 export async function getThread(ctx:Context,id:string) {let r=await resource(ctx,id,'thread');const c=await connection(ctx,r.connectionId);assertScope(c,'mail',ctx);if(!ctx.workspace.demo)r=await hydrateThread(c,r.providerId);return views.threadDetailView(r);}

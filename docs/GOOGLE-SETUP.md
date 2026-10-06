@@ -2,7 +2,7 @@
 
 Orbitdesk uses two distinct OAuth flows. Login requests OpenID, email and profile only. Connecting a Google account requests mail, Calendar and Tasks, with Contacts and Files available through additional consent. A login identity does not grant access to its mailbox automatically.
 
-The Google Cloud project created for this beta is `orbitdesk-20261004`. Its Workspace APIs have been enabled. A **Web application** OAuth client still needs to be created in Google Auth Platform. Google's Cloud Console currently requires the account owner's passkey; the authenticated gcloud CLI cannot create a general Workspace web OAuth client through its supported commands.
+The hosted beta was configured on 6 October 2026 in Google Cloud project `orbitdesk-20261004`. The web OAuth client is named **Orbitdesk Railway production**. Its credentials are installed on both Railway app services, and the owner has signed in and granted Gmail, Calendar and Tasks access through Chrome. The audience remains external with **Testing** status, with `jmqcooper@gmail.com` added as a test user. Contacts and Files require additional consent.
 
 ## Console configuration
 
@@ -15,8 +15,12 @@ The Google Cloud project created for this beta is `orbitdesk-20261004`. Its Work
 
 The login scope set is `openid email profile`. Connection scopes are defined in `packages/core/src/google.ts`. Gmail uses `gmail.modify`, Calendar uses `calendar.events`, `calendar.calendarlist.readonly` and `calendar.freebusy`, Tasks uses `tasks`. Contacts are read-only. Files combines app-created Drive file access, Drive read access, and Docs/Sheets/Slides editing. Consent is incremental and every connected account has its own encrypted refresh token.
 
-OAuth testing has Google-imposed user and token-lifetime limits. A public SaaS launch using restricted Gmail scopes needs the applicable Google verification and security assessment before broad release. Invite-only branding does not itself waive those requirements. Workspace admins can also block grants.
+Google's Testing status limits access to listed test users. Gmail, Calendar and Tasks grants, including their refresh tokens, expire after seven days and then need reconnection. Login using only OpenID, email and profile is exempt from that expiry. See [Google's audience rules](https://support.google.com/cloud/answer/15549945?hl=en). A public SaaS launch using restricted Gmail scopes needs the applicable Google verification and security assessment before broad release. Workspace admins can also block grants.
 
-After configuration, verification must include real Google accounts: connect two accounts, synchronize, reply to a real multi-message thread, save/edit a Gmail draft outside Orbitdesk to check conflicts, schedule a send, create an event with attendees, check live free/busy, and create/complete a Google task. These live checks cannot be replaced by the sandbox or mocked API tests.
+The owner-account checks include Google login and connection, successful initial Gmail import, saving/editing/reopening/deleting a real Gmail draft, verifying a real reply draft's thread headers, creating/deleting a self-only calendar event, and creating/completing/deleting a Google task. No real email was sent during these checks. See the [verification record](VERIFICATION.md).
+
+Broader release checks still include a second real account, a live reply and scheduled send to a controlled recipient, externally edited Gmail draft conflicts, an attendee invitation and additional Contacts/Files consent. These checks cannot be replaced by sandbox or mocked API tests.
+
+The first large mail sync exposed Gmail's per-minute quota. Background thread and draft reads are now paced, initial imports have a one-hour queue job lifetime, rate-limited reads use bounded exponential backoff, and mutations are never automatically replayed. Google quota denials are distinguished from permission denials. [Google's quota table](https://developers.google.com/workspace/gmail/api/reference/quota) and [error guide](https://developers.google.com/workspace/gmail/api/guides/handle-errors) explain the limits and 403 quota responses.
 
 Sources: [Google web OAuth](https://developers.google.com/identity/protocols/oauth2/web-server), [OAuth production readiness](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification), [Gmail threading](https://developers.google.com/workspace/gmail/api/guides/threads), [Calendar free/busy](https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query).

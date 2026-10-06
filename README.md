@@ -21,7 +21,7 @@ The public sandbox creates a separate workspace for every visitor, with 12 simul
 - Durable Postgres actions, a pg-boss worker, atomic execution claims, heartbeat and uncertain-outcome handling.
 - Isolated sessions, encrypted Google credentials, workspace-scoped resources, validation, HTML sanitization, usage limits and account deletion.
 
-Real Google account connections require a Google web OAuth client. See [Google setup](docs/GOOGLE-SETUP.md). The current hosted sandbox is useful before that client is configured; it clearly marks its simulated accounts. Chat, Forms, Keep, Admin Console and organization-wide delegation are outside this release. Google Meet is supported through Calendar conferences; meeting recordings and transcripts are not included.
+The hosted beta has Google sign-in enabled. Gmail, Calendar and Tasks have been connected and tested with the owner account. Google access is currently limited to listed test users and Workspace grants expire after seven days in Testing status. See [Google setup](docs/GOOGLE-SETUP.md). The public sandbox remains available without a Google account. Chat, Forms, Keep, Admin Console and organization-wide delegation are outside this release. Google Meet is supported through Calendar conferences; meeting recordings and transcripts are not included.
 
 ## Run locally
 

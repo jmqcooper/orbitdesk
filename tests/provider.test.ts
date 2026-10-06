@@ -2,7 +2,7 @@ import '../packages/core/src/config';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { db, json, object } from '../packages/core/src/db';
 import { createDemo } from '../packages/core/src/seed';
-import { connections, resources, type Context } from '../packages/core/src/store';
+import { connections, resources, put, type Context } from '../packages/core/src/store';
 import { createDraft, gapList, getThreads } from '../packages/core/src/workspace';
 import { propose, approve, execute, prepareSend } from '../packages/core/src/actions';
 import { encrypt } from '../packages/core/src/security';
@@ -11,6 +11,7 @@ import { beginOAuth, finishOAuth } from '../packages/core/src/oauth';
 import { createSession } from '../packages/core/src/session';
 import { api, mailMessage } from '../packages/core/src/google';
 import { connectionView } from '../packages/core/src/views';
+import { handle } from '../packages/core/src/http';
 
 let ctx:Context,accountId:string,raw='',changedRaw:string|null=null,sendCount=0,uncertain=false;
 beforeAll(async()=>{ctx=await createDemo();ctx.workspace=await db.workspace.update({where:{id:ctx.workspace.id},data:{demo:false}});const c=(await connections(ctx))[0];accountId=c.id;await db.connection.update({where:{id:c.id},data:{credentials:encrypt({access_token:'unit-test-token',expiry_date:Date.now()+3600000}),scopes:['https://www.googleapis.com/auth/gmail.modify']}});});
@@ -27,6 +28,29 @@ describe('OAuth state and PKCE',()=>{
 });
 
 describe('live Gmail search',()=>{
+  it('uses the current Google folder membership when cached labels are stale',async()=>{
+    const scoped={...ctx,connectionIds:[accountId]},r=(await resources(scoped,'thread'))[0],data=object(r.data);
+    await db.resource.update({where:{id:r.id},data:{data:json({...data,inInbox:false,labels:[]})}});
+    const mock=vi.fn(async(input:any)=>{expect(new URL(String(input)).searchParams.getAll('labelIds')).toEqual(['INBOX']);return Response.json({threads:[{id:r.providerId}]});});vi.stubGlobal('fetch',mock);
+    try{const result=await getThreads(scoped,'from:sender@example.com','inbox');expect(result.gaps).toEqual([]);expect(result.items.map(t=>t.id)).toEqual([r.id]);expect(mock).toHaveBeenCalledTimes(1);}
+    finally{vi.unstubAllGlobals();await db.resource.update({where:{id:r.id},data:{data:r.data}});}
+  });
+  it('returns the requested search page without scanning every Google result page',async()=>{
+    const c=(await connections(ctx))[0],original=object((await resources({...ctx,connectionIds:[accountId]},'thread'))[0].data),ids=Array.from({length:50},(_,i)=>'paged-search-'+i);
+    for(let i=0;i<ids.length;i++)await put(c,'thread',ids[i],{...original,subject:ids[i],lastMessageAt:new Date(Date.now()-i*1000).toISOString()});
+    const cookie=(await createSession(ctx.user.id,false)).split(';')[0];
+    const mock=vi.fn(async(input:any)=>{
+      const url=new URL(String(input));if(!url.pathname.endsWith('/threads'))throw new Error('Cached search page should not hydrate threads');
+      expect(url.searchParams.getAll('labelIds')).toEqual(['INBOX']);
+      const max=Number(url.searchParams.get('maxResults'));return Response.json({threads:ids.slice(0,max).map(id=>({id})),...(max<ids.length?{nextPageToken:'more'}:{})});
+    });vi.stubGlobal('fetch',mock);
+    try{
+      const first=await handle(new Request(`http://localhost:3100/api/threads?accountId=${accountId}&q=from:sender@example.com&folder=inbox&limit=40`,{headers:{cookie}})),a=(await first.json()).data;
+      expect(first.status).toBe(200);expect(a.items.map((t:any)=>t.subject)).toEqual(ids.slice(0,40));expect(a.nextCursor).toBeTruthy();expect(mock).toHaveBeenCalledTimes(1);expect(new URL(String(mock.mock.calls[0][0])).searchParams.get('maxResults')).toBe('41');
+      const second=await handle(new Request(`http://localhost:3100/api/threads?accountId=${accountId}&q=from:sender@example.com&folder=inbox&limit=40&cursor=${a.nextCursor}`,{headers:{cookie}})),b=(await second.json()).data;
+      expect(second.status).toBe(200);expect(b.items.map((t:any)=>t.subject)).toEqual(ids.slice(40));expect(b.nextCursor).toBeNull();expect(mock).toHaveBeenCalledTimes(2);
+    }finally{vi.unstubAllGlobals();await db.resource.deleteMany({where:{connectionId:accountId,kind:'thread',providerId:{in:ids}}});}
+  });
   it('reads each result page once and reuses cached matching conversations',async()=>{
     const scoped={...ctx,connectionIds:[accountId]},cached=await resources(scoped,'thread');
     const mock=vi.fn(async(input:any)=>{

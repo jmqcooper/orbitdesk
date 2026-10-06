@@ -26,7 +26,7 @@ export async function gapList(ctx:Context,area:T.ResourceKind):Promise<T.SourceG
     return [{accountId:c.id,resource:area,resourceId:null,code,message}];
   });
 }
-export async function getThreads(ctx:Context,q='',folder='inbox',labelId?:string) {
+export async function getThreads(ctx:Context,q='',folder='inbox',labelId?:string,searchLimit=100) {
   const gaps=await gapList(ctx,'mail');
   const matching=new Set<string>();
   if(q&&!ctx.workspace.demo){
@@ -34,18 +34,27 @@ export async function getThreads(ctx:Context,q='',folder='inbox',labelId?:string
     for(const c of await connections(ctx)){
       if(!scopeAvailable(c,'mail',ctx))continue;
       try{
-        const matches=await pages(c,`gmail/threads?q=${enc(q)}&maxResults=100`,'threads');
+        const params=new URLSearchParams({q,maxResults:String(Math.min(100,searchLimit))});
+        const folderLabels:Record<string,string[]>={inbox:['INBOX'],unread:['INBOX','UNREAD'],starred:['STARRED'],sent:['SENT'],trash:['TRASH']};
+        for(const id of [...(folderLabels[folder]||[]),...(labelId?[labelId]:[])])params.append('labelIds',id);
+        if(folder==='trash')params.set('includeSpamTrash','true');
+        const matches:any[]=[];let page='';
+        // One extra result tells the HTTP paginator whether another page exists.
+        // Do not scan a mailbox's complete search history before returning its first page.
+        do{const result=await api(c,`gmail/threads?${params}${page?'&pageToken='+enc(page):''}`);matches.push(...(result.threads||[]));page=result.nextPageToken||'';}while(page&&matches.length<searchLimit);
+        matches.splice(searchLimit);
         for(const m of matches)matching.add(`${c.id}:${m.id}`);
         // Google decides query membership. Reuse synced previews; opening a thread
         // still fetches its current full conversation. Only older cache misses need reads.
-        const missing=matches.slice(0,100).filter(m=>!cachedKeys.has(`${c.id}:${m.id}`));
+        const missing=matches.filter(m=>!cachedKeys.has(`${c.id}:${m.id}`));
         for(let i=0;i<missing.length;i+=4)await Promise.all(missing.slice(i,i+4).map(m=>hydrateThread(c,m.id)));
       }catch(e){gaps.push({accountId:c.id,resource:'mail',resourceId:null,code:'provider_error',message:(e as Error).message});}
     }
   }
   const cached=await resources(ctx,'thread');let rows=cached.map(views.threadView);const bad=new Set(gaps.map(g=>g.accountId));rows=rows.filter(t=>!bad.has(t.accountId));
-  rows=rows.filter(t=>folder==='trash'?t.trashed:!t.trashed&& (folder==='inbox'?t.inInbox:folder==='unread'?t.inInbox&&t.unread:folder==='starred'?t.starred:folder==='sent'?t.labelIds.includes('SENT'):true));
-  if(labelId)rows=rows.filter(t=>t.labelIds.includes(labelId));
+  // Live search already applied these filters at Google. Cached preview labels
+  // can lag behind a change made in Gmail, so they must not veto Google's matches.
+  if(!q||ctx.workspace.demo){rows=rows.filter(t=>folder==='trash'?t.trashed:!t.trashed&& (folder==='inbox'?t.inInbox:folder==='unread'?t.inInbox&&t.unread:folder==='starred'?t.starred:folder==='sent'?t.labelIds.includes('SENT'):true));if(labelId)rows=rows.filter(t=>t.labelIds.includes(labelId));}
   if(q){if(ctx.workspace.demo)rows=rows.filter(t=>matchesMailQuery(views.threadDetailView(cached.find(r=>r.id===t.id)!),q));else{const selected=new Set(cached.filter(r=>matching.has(`${r.connectionId}:${r.providerId}`)).map(r=>r.id));rows=rows.filter(t=>selected.has(t.id));}}
   rows.sort((a,b)=>b.lastMessageAt.localeCompare(a.lastMessageAt));return list(rows,gaps);
 }

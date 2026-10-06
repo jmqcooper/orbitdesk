@@ -10,7 +10,8 @@ import { retainCache } from './retention';
 
 let boss:PgBoss|undefined,starting:Promise<PgBoss>|undefined;
 export async function queue() {if(boss)return boss;if(starting)return starting;starting=(async()=>{const q=new PgBoss({connectionString:process.env.DATABASE_URL!,schema:'pgboss'});q.on('error',()=>console.error('Queue operation failed; durable actions remain in Postgres.'));await q.start();await q.createQueue('sync-account',{retryLimit:2,retryDelay:30});await q.createQueue('execute-action',{retryLimit:0});boss=q;return q;})();try{return await starting;}finally{starting=undefined;}}
-export async function enqueueSync(connectionId:string) {try{return await (await queue()).send('sync-account',{connectionId},{singletonKey:connectionId});}catch{/* Worker scans accounts as a durable fallback. */return null;}}
+// A quota-paced initial mailbox import can exceed pg-boss's 15-minute default.
+export async function enqueueSync(connectionId:string) {try{return await (await queue()).send('sync-account',{connectionId},{singletonKey:connectionId,expireInSeconds:3600});}catch{/* Worker scans accounts as a durable fallback. */return null;}}
 export async function enqueueAction(actionId:string,startAfter?:Date) {try{return await (await queue()).send('execute-action',{actionId},{singletonKey:actionId,startAfter});}catch{/* The approved Action row is the durable outbox. */return null;}}
 export async function stopQueue(){if(boss){await boss.stop({graceful:true});boss=undefined;}}
 export function nextRun(schedule:{time:string;days:number[];timezone:string},after=new Date()) {

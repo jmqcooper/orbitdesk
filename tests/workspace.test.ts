@@ -6,7 +6,7 @@ import { createDemo } from '../packages/core/src/seed';
 import { createSession } from '../packages/core/src/session';
 import { resources, connection, type Context } from '../packages/core/src/store';
 import { propose, approve, execute, prepareSend } from '../packages/core/src/actions';
-import { stopQueue, tick, nextRun } from '../packages/core/src/jobs';
+import { stopQueue, tick, nextRun, queue, enqueueSync } from '../packages/core/src/jobs';
 import { availability, createDraft } from '../packages/core/src/workspace';
 import { encrypt, decrypt, safeHtml, hashPayload } from '../packages/core/src/security';
 import { syncMail } from '../packages/core/src/google';
@@ -19,6 +19,12 @@ beforeAll(async()=>{one=await createDemo();two=await createDemo();cookie=(await 
 afterAll(async()=>{vi.unstubAllGlobals();await stopQueue();await db.user.deleteMany({where:{id:{in:[one?.user.id,two?.user.id].filter(Boolean)}}});await db.$disconnect();});
 
 describe('workspace isolation and API',()=>{
+  it('gives initial mailbox imports more than the default fifteen-minute job lifetime',async()=>{
+    const connectionId=(await bootstrap(one)).connections[0].id,q=await queue(),id=await enqueueSync(connectionId);
+    expect(id).toBeTruthy();
+    try{const job=await q.getJobById('sync-account',id!);expect(job?.data).toEqual({connectionId});expect(job?.expireInSeconds).toBeGreaterThanOrEqual(3600);}
+    finally{if(id)await q.cancel('sync-account',id);}
+  });
   it('returns no private data without a session and rejects cross-site writes',async()=>{expect((await call('bootstrap','GET',undefined,'')).status).toBe(401);expect((await call('auth/demo','POST',{},'','https://attacker.example')).status).toBe(403);expect((await call('session','GET',undefined,'')).json.data.session).toBeNull();});
   it('provides contract-shaped bootstrap with twelve accounts and eight calendars',async()=>{const r=await call('bootstrap');expect(r.status).toBe(200);expect(r.json.data.session.mode).toBe('demo');expect(r.json.data.connections).toHaveLength(12);expect(r.json.data.calendars).toHaveLength(8);expect(r.json.data.settings.workingHours.start).toBe('09:00');expect(JSON.stringify(r.json)).not.toContain('credentials');});
   it('blocks cross-workspace ids for threads, tasks and account selection',async()=>{const threads=await resources(one,'thread'),tasks=await resources(one,'task');expect((await call('threads/'+threads[0].id,'GET',undefined,foreignCookie)).status).toBe(404);expect((await call('tasks/'+tasks[0].id,'PATCH',{completed:true},foreignCookie)).status).toBe(404);expect((await call('threads?accountId='+threads[0].connectionId,'GET',undefined,foreignCookie)).status).toBe(404);});

@@ -14,7 +14,18 @@ import { matchesMailQuery } from './mail-search';
 export const list=<X>(items:X[],gaps:T.SourceGap[]=[]):T.ListResult<X>=>({items,nextCursor:null,gaps});
 export function scopeAvailable(c:Connection,area:string,ctx:Context) {return ctx.workspace.demo||(area==='files'?GOOGLE_SCOPES.files.slice(0,2).some(s=>c.scopes.includes(s)):c.scopes.includes(GOOGLE_SCOPES[area]?.[0]||''));}
 export function assertScope(c:Connection,area:string,ctx:Context) {if(!scopeAvailable(c,area,ctx))throw new AppError('permission_missing',`Connect this account again to grant ${area} access.`,403);if(c.status==='paused')throw new AppError('permission_missing','This account is paused.',403);}
-export async function gapList(ctx:Context,area:T.ResourceKind) {return (await connections(ctx)).filter(c=>!scopeAvailable(c,area,ctx)||['reconnect_required','error','paused'].includes(c.status)).map(c=>({accountId:c.id,resource:area,resourceId:null,code:c.status==='reconnect_required'?'reconnect_required':'permission_missing',message:c.error||`This account has no ${area} access.`}) as T.SourceGap);}
+export async function gapList(ctx:Context,area:T.ResourceKind):Promise<T.SourceGap[]> {
+  return (await connections(ctx)).flatMap(c=>{
+    const error=object(object(c.syncState)[area]).error;
+    let code:T.ErrorCode,message:string;
+    if(!scopeAvailable(c,area,ctx)){code='permission_missing';message=`This account has no ${area} access.`;}
+    else if(c.status==='reconnect_required'){code='reconnect_required';message=c.error||'Reconnect this Google account.';}
+    else if(c.status==='paused'){code='permission_missing';message='This account is paused.';}
+    else if(typeof error==='string'&&error){code='provider_error';message=error;}
+    else return [];
+    return [{accountId:c.id,resource:area,resourceId:null,code,message}];
+  });
+}
 export async function getThreads(ctx:Context,q='',folder='inbox',labelId?:string) {
   const gaps=await gapList(ctx,'mail');
   if(q&&!ctx.workspace.demo){for(const c of await connections(ctx)){if(!scopeAvailable(c,'mail',ctx))continue;try{const matches=await pages(c,`gmail/threads?q=${enc(q)}&maxResults=100`,'threads');for(const m of matches.slice(0,100))await hydrateThread(c,m.id);}catch(e){gaps.push({accountId:c.id,resource:'mail',resourceId:null,code:'provider_error',message:(e as Error).message});}}}

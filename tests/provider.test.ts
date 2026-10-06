@@ -3,13 +3,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { db, json, object } from '../packages/core/src/db';
 import { createDemo } from '../packages/core/src/seed';
 import { connections, type Context } from '../packages/core/src/store';
-import { createDraft } from '../packages/core/src/workspace';
+import { createDraft, gapList } from '../packages/core/src/workspace';
 import { propose, approve, execute, prepareSend } from '../packages/core/src/actions';
 import { encrypt } from '../packages/core/src/security';
 import { stopQueue } from '../packages/core/src/jobs';
 import { beginOAuth, finishOAuth } from '../packages/core/src/oauth';
 import { createSession } from '../packages/core/src/session';
-import { mailMessage } from '../packages/core/src/google';
+import { api, mailMessage } from '../packages/core/src/google';
+import { connectionView } from '../packages/core/src/views';
 
 let ctx:Context,accountId:string,raw='',changedRaw:string|null=null,sendCount=0,uncertain=false;
 beforeAll(async()=>{ctx=await createDemo();ctx.workspace=await db.workspace.update({where:{id:ctx.workspace.id},data:{demo:false}});const c=(await connections(ctx))[0];accountId=c.id;await db.connection.update({where:{id:c.id},data:{credentials:encrypt({access_token:'unit-test-token',expiry_date:Date.now()+3600000}),scopes:['https://www.googleapis.com/auth/gmail.modify']}});});
@@ -23,4 +24,53 @@ describe('real-provider execution boundaries',()=>{
 });
 describe('OAuth state and PKCE',()=>{
   it('uses minimal login scopes and a proper base64url PKCE challenge',async()=>{const oldId=process.env.GOOGLE_CLIENT_ID,oldSecret=process.env.GOOGLE_CLIENT_SECRET;process.env.GOOGLE_CLIENT_ID='test-client.apps.googleusercontent.com';process.env.GOOGLE_CLIENT_SECRET='test-secret';try{const start=await beginOAuth(new Request('http://localhost:3100/api/auth/google?mode=login'));const url=new URL(start.headers.get('location')!);expect(url.searchParams.get('scope')).toBe('openid email profile');expect(url.searchParams.get('code_challenge')).toMatch(/^[a-zA-Z0-9_-]{43}$/);expect(url.searchParams.get('code_challenge_method')).toBe('S256');expect(url.searchParams.get('nonce')).toBeTruthy();const state=url.searchParams.get('state')!,bad=await finishOAuth(new Request('http://localhost:3100/api/auth/callback?state='+state+'&code=fake',{headers:{cookie:'orbitdesk_oauth=forged'}}));expect(bad.headers.get('location')).toContain('state_mismatch');const cancel=await finishOAuth(new Request('http://localhost:3100/api/auth/callback?state='+state+'&error=access_denied',{headers:{cookie:'orbitdesk_oauth='+state}}));expect(cancel.headers.get('location')).toContain('access_denied');const replay=await finishOAuth(new Request('http://localhost:3100/api/auth/callback?state='+state+'&error=access_denied',{headers:{cookie:'orbitdesk_oauth='+state}}));expect(replay.headers.get('location')).toContain('state_mismatch');}finally{if(oldId)process.env.GOOGLE_CLIENT_ID=oldId;else delete process.env.GOOGLE_CLIENT_ID;if(oldSecret)process.env.GOOGLE_CLIENT_SECRET=oldSecret;else delete process.env.GOOGLE_CLIENT_SECRET;}});
+});
+
+describe('Google quota handling',()=>{
+  const quota=()=>Response.json({error:{code:403,errors:[{reason:'rateLimitExceeded'}],details:[{reason:'RATE_LIMIT_EXCEEDED'}]}},{status:403});
+  it('backs off and retries a Gmail read rejected by the per-minute quota',async()=>{
+    const c=(await connections(ctx))[0];
+    const mock=vi.fn().mockResolvedValueOnce(quota()).mockResolvedValueOnce(Response.json({historyId:'123'}));
+    vi.stubGlobal('fetch',mock);vi.useFakeTimers();
+    try{
+      const pending=api(c,'gmail/profile');
+      // Attach both handlers before advancing timers, including on the failing implementation.
+      const outcome=pending.then(value=>({value,error:null}),error=>({value:null,error}));
+      await vi.waitFor(()=>expect(mock).toHaveBeenCalledTimes(1));
+      await vi.runAllTimersAsync();
+      const result=await outcome;
+      expect(result.error).toBeNull();expect(result.value).toEqual({historyId:'123'});expect(mock).toHaveBeenCalledTimes(2);
+    }finally{vi.useRealTimers();vi.unstubAllGlobals();}
+  });
+  it('reports quota exhaustion accurately without retrying a send',async()=>{
+    const c=(await connections(ctx))[0],mock=vi.fn().mockResolvedValue(quota());vi.stubGlobal('fetch',mock);
+    try{await expect(api(c,'gmail/drafts/send',{method:'POST',body:'{}'})).rejects.toMatchObject({code:'rate_limited',status:429});expect(mock).toHaveBeenCalledTimes(1);}
+    finally{vi.unstubAllGlobals();}
+  });
+  it('stops retrying a persistently rate-limited read',async()=>{
+    const c=(await connections(ctx))[0],mock=vi.fn().mockImplementation(async()=>quota());vi.stubGlobal('fetch',mock);vi.useFakeTimers();
+    try{
+      const outcome=api(c,'gmail/profile').then(()=>null,error=>error);
+      await vi.waitFor(()=>expect(mock).toHaveBeenCalledTimes(1));await vi.runAllTimersAsync();
+      expect(await outcome).toMatchObject({code:'rate_limited',status:429});expect(mock).toHaveBeenCalledTimes(7);
+    }finally{vi.useRealTimers();vi.unstubAllGlobals();}
+  });
+  it('keeps real permission denials distinct and does not retry them',async()=>{
+    const c=(await connections(ctx))[0],mock=vi.fn().mockResolvedValue(Response.json({error:{errors:[{reason:'domainPolicy'}]}},{status:403}));vi.stubGlobal('fetch',mock);
+    try{await expect(api(c,'gmail/profile')).rejects.toMatchObject({code:'permission_missing',status:403});expect(mock).toHaveBeenCalledTimes(1);}
+    finally{vi.unstubAllGlobals();}
+  });
+  it('shows successful Calendar and Tasks sync independently of a Gmail failure',async()=>{
+    const c=(await connections(ctx))[0],at='2026-10-06T18:00:00.000Z';
+    const v=connectionView({...c,status:'error',lastSyncAt:null,syncState:json({mail:{error:'Rate limit'},calendar:{lastSuccessAt:at,error:null},tasks:{lastSuccessAt:at,error:null}})},ctx);
+    expect(v.sync.map(s=>[s.resource,s.status])).toEqual([['mail','error'],['calendar','ok'],['tasks','ok']]);
+  });
+  it('does not hide synced Tasks because the same account hit a Gmail quota',async()=>{
+    const c=(await connections(ctx))[0],at='2026-10-06T18:00:00.000Z';
+    try{
+      await db.connection.update({where:{id:c.id},data:{status:'error',error:'Google temporarily limited this account.',scopes:[...c.scopes,'https://www.googleapis.com/auth/tasks'],syncState:json({mail:{error:'Google temporarily limited this account.'},tasks:{lastSuccessAt:at,error:null}})}});
+      const scoped={...ctx,connectionIds:[c.id]};
+      expect(await gapList(scoped,'tasks')).toEqual([]);expect(await gapList(scoped,'mail')).toHaveLength(1);
+    }finally{await db.connection.update({where:{id:c.id},data:{status:c.status,error:c.error,scopes:c.scopes,syncState:json(c.syncState)}});}
+  });
 });

@@ -14,6 +14,7 @@ export const GOOGLE_SCOPES: Record<string,string[]> = {
   files:['https://www.googleapis.com/auth/drive.file','https://www.googleapis.com/auth/drive.readonly','https://www.googleapis.com/auth/documents','https://www.googleapis.com/auth/spreadsheets','https://www.googleapis.com/auth/presentations'],
 };
 export function oauthClient() {return new OAuth2Client(process.env.GOOGLE_CLIENT_ID,process.env.GOOGLE_CLIENT_SECRET,`${appUrl()}/api/auth/callback`);}
+const pause=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms));
 export async function api(conn:Connection,path:string,init:RequestInit={},extraHeaders:Record<string,string>={}) {
   if(!conn.credentials)throw new AppError('reconnect_required','Reconnect this Google account.',409);
   const client=oauthClient();const saved=decrypt<Credentials>(conn.credentials);client.setCredentials(saved);
@@ -23,8 +24,25 @@ export async function api(conn:Connection,path:string,init:RequestInit={},extraH
   if(client.credentials.access_token!==saved.access_token)await db.connection.update({where:{id:conn.id},data:{credentials:encrypt({...saved,...client.credentials})}});
   const bases:Record<string,string>={gmail:'https://gmail.googleapis.com/gmail/v1/users/me',calendar:'https://www.googleapis.com/calendar/v3',tasks:'https://tasks.googleapis.com/tasks/v1',people:'https://people.googleapis.com/v1',drive:'https://www.googleapis.com/drive/v3',docs:'https://docs.googleapis.com/v1',sheets:'https://sheets.googleapis.com/v4',slides:'https://slides.googleapis.com/v1'};
   const area=path.slice(0,path.indexOf('/'));const base=bases[area];if(!base)throw new AppError('validation_failed','Unknown Google service.',422);
-  const res=await fetch(base+path.slice(area.length),{...init,headers:{Authorization:`Bearer ${token}`,...(init.body?{'Content-Type':'application/json'}:{}),...extraHeaders},signal:AbortSignal.timeout(25000)});
-  if(!res.ok){const err:any=await res.json().catch(()=>({}));const mapped=safeProviderError({code:res.status});if(res.status===401)await db.connection.update({where:{id:conn.id},data:{status:'reconnect_required',error:mapped.message}});throw mapped;}
+  let res:Response;
+  for(let attempt=0;;attempt++){
+    res=await fetch(base+path.slice(area.length),{...init,headers:{Authorization:`Bearer ${token}`,...(init.body?{'Content-Type':'application/json'}:{}),...extraHeaders},signal:AbortSignal.timeout(25000)});
+    if(res.ok)break;
+    const err:any=await res.json().catch(()=>({}));
+    const reasons=[...(err.error?.errors||[]),...(err.error?.details||[])].map((e:any)=>e.reason);
+    const limited=res.status===429||res.status===403&&reasons.some((r:string)=>['rateLimitExceeded','userRateLimitExceeded','RATE_LIMIT_EXCEEDED'].includes(r));
+    const mapped=safeProviderError({code:limited?429:res.status});
+    // Only reads can be replayed. A failed send or mutation may have reached Google.
+    if(limited&&['GET','HEAD'].includes((init.method||'GET').toUpperCase())&&attempt<6){
+      const retryAfter=res.headers.get('retry-after');
+      const suggested=retryAfter?(Number.isFinite(Number(retryAfter))?Number(retryAfter)*1000:Date.parse(retryAfter)-Date.now()):0;
+      const backoff=Math.min(32000,1000*2**attempt+Math.floor(Math.random()*1000));
+      await pause(Math.min(60000,Math.max(backoff,Number.isFinite(suggested)?suggested:0)));
+      continue;
+    }
+    if(res.status===401)await db.connection.update({where:{id:conn.id},data:{status:'reconnect_required',error:mapped.message}});
+    throw mapped;
+  }
   if(res.status===204)return null;
   if(res.headers.get('content-type')?.includes('application/json'))return res.json();
   return res.text();
@@ -54,9 +72,11 @@ export async function syncMail(conn:Connection) {
   const state=object(conn.syncState);let cursor=state.mailHistoryId as string|undefined;const profile=await api(conn,'gmail/profile');let ids:string[]=[];let nextCursor=profile.historyId;
   if(cursor){try{let page='';const touched=new Set<string>();do{const h=await api(conn,`gmail/history?startHistoryId=${enc(cursor)}&maxResults=500${page?'&pageToken='+enc(page):''}`);for(const change of h.history||[])for(const m of [...(change.messages||[]),...(change.messagesAdded||[]).map((x:any)=>x.message),...(change.messagesDeleted||[]).map((x:any)=>x.message),...(change.labelsAdded||[]).map((x:any)=>x.message),...(change.labelsRemoved||[]).map((x:any)=>x.message)])if(m?.threadId)touched.add(m.threadId);page=h.nextPageToken||'';nextCursor=h.historyId||nextCursor;}while(page);ids=[...touched];}catch(e){if((e as AppError).status===404)cursor=undefined;else throw e;}}
   if(!cursor){ids=(await pages(conn,'gmail/threads?q=newer_than%3A30d&maxResults=100','threads')).map(t=>t.id);}
-  for(const id of ids){try{await hydrateThread(conn,id);}catch(e){if((e as AppError).status===404)await db.resource.deleteMany({where:{connectionId:conn.id,kind:'thread',providerId:id}});else throw e;}}
+  // threads.get costs 40 units under Gmail's 6,000-unit per-user minute quota.
+  // Reserve capacity for interactive reads instead of bursting through the initial cache.
+  for(const id of ids){await pause(600);try{await hydrateThread(conn,id);}catch(e){if((e as AppError).status===404)await db.resource.deleteMany({where:{connectionId:conn.id,kind:'thread',providerId:id}});else throw e;}}
   const labels=await api(conn,'gmail/labels');for(const l of labels.labels||[])await put(conn,'label',l.id,{name:l.name,kind:l.type==='user'?'user':'system',color:l.color?.backgroundColor||null});
-  const drafts=await pages(conn,'gmail/drafts?maxResults=100','drafts');for(const d of drafts)await hydrateDraft(conn,d.id);
+  const drafts=await pages(conn,'gmail/drafts?maxResults=100','drafts');for(const d of drafts){await pause(600);await hydrateDraft(conn,d.id);}
   await db.resource.deleteMany({where:{connectionId:conn.id,kind:'draft',providerId:{notIn:drafts.map(d=>d.id)}}});
   try{const identities=await api(conn,'gmail/settings/sendAs');await db.connection.update({where:{id:conn.id},data:{settings:json({...object(conn.settings),sendAs:(identities.sendAs||[]).filter((a:any)=>a.isPrimary||a.verificationStatus==='accepted').map((a:any)=>({email:a.sendAsEmail,name:a.displayName||null,isDefault:!!a.isDefault}))})}});}catch{/* Keep the verified primary identity if Google cannot list aliases. */}
   return {mailHistoryId:String(nextCursor)};

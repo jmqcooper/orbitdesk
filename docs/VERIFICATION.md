@@ -52,6 +52,8 @@ The 6 October sandbox browser checks were recorded. They covered a reply-all fro
 
 ## Remaining live verification
 
-The beta currently has one verified real Google account. A second real account, delivery of real threaded replies and scheduled sends, attendee invitations, external draft conflicts and Contacts/Files grants remain separate live release checks. [Google setup](GOOGLE-SETUP.md) contains the callback URL, scope definitions and beta configuration.
+Google OAuth was published with **In production** status on 6 October. The owner then signed in and renewed Gmail, Calendar and Tasks consent through the collaborative browser. All three services reported up-to-date sync afterward. Google branding verification flagged missing homepage ownership registration; Search Console verification and branding/scope review remain distinct from the completed Production publishing change. [Astra's practical app review](APP-REVIEW.md) records the remaining everyday-flow bugs and missing features without expanding the architecture.
+
+The beta currently has one tested real Google account. A second real account, delivery of real threaded replies and scheduled sends, attendee invitations, external draft conflicts and Contacts/Files grants remain separate live release checks. [Google setup](GOOGLE-SETUP.md) contains the callback URL, scope definitions and beta configuration.
 
 Public SaaS launch still requires Google approval for the requested scopes, billing and broader operational validation. Chat, Forms, Keep, Admin and organization-wide delegation are outside this beta.

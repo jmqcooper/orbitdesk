@@ -257,8 +257,8 @@ function AddAccountDialog({ onClose }: { onClose: () => void }) {
           })}
         </fieldset>
         <Notice tone="info">
-          While Orbitdesk is in Google’s testing mode, access expires after seven days and the account has to be
-          reconnected. Scheduled actions for that account pause until then.
+          You can revoke access in your Google account at any time. If access expires or is revoked, reconnect
+          the account before its scheduled actions can continue.
         </Notice>
       </div>
     </Dialog>

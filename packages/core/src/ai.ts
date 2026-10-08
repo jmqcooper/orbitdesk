@@ -1,4 +1,4 @@
-import { generateText, Output } from 'ai';
+import { generateText, NoObjectGeneratedError, NoOutputGeneratedError, Output } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { z } from 'zod';
 import { db } from './db';
@@ -42,7 +42,13 @@ export async function recordTokens(usageId:string,usage:{inputTokens?:number;out
  * A typed answer from the fast model: the "smart if". The schema is enforced,
  * so callers branch on real enums and booleans instead of parsing prose.
  */
-export async function classify<S extends z.ZodType>(schema:S,system:string,prompt:string,maxOutputTokens=4000):Promise<{value:z.infer<S>;usage:{inputTokens?:number;outputTokens?:number}}> {
-  const result=await generateText({model:fastModel(),output:Output.object({schema}),system,prompt,maxOutputTokens,abortSignal:AbortSignal.timeout(60000)});
-  return {value:result.output as z.infer<S>,usage:result.usage};
+export async function classify<S extends z.ZodType>(schema:S,system:string,prompt:string,maxOutputTokens=6000):Promise<{value:z.infer<S>;usage:{inputTokens?:number;outputTokens?:number}}> {
+  // The router sends each request to a model of its choosing, and now and then one spends the whole
+  // budget thinking and cuts its answer off mid-JSON. Asking once more lands on another route.
+  for(let attempt=1;;attempt++){
+    try{
+      const result=await generateText({model:fastModel(),output:Output.object({schema}),system,prompt,maxOutputTokens,abortSignal:AbortSignal.timeout(60000)});
+      return {value:result.output as z.infer<S>,usage:result.usage};
+    }catch(e){if(attempt>1||!(NoObjectGeneratedError.isInstance(e)||NoOutputGeneratedError.isInstance(e)))throw e;}
+  }
 }

@@ -17,7 +17,7 @@ const calls: any[] = [];
 const hadKey = process.env.OPENROUTER_API_KEY, hadBase = process.env.OPENROUTER_BASE_URL;
 
 /** OpenRouter's chat-completions endpoint, answering as each of the two models would. */
-function mockOpenRouter(reply = 'Thursday at 14:00 works for me.\n\nMike') {
+function mockOpenRouter(reply = 'Thursday at 14:00 works for me.\n\nMike', cutOff = 0) {
   vi.stubGlobal('fetch', vi.fn(async (url: any, init: any) => {
     expect(String(url)).toBe('https://openrouter.ai/api/v1/chat/completions');
     const body = JSON.parse(init.body);
@@ -34,6 +34,8 @@ function mockOpenRouter(reply = 'Thursday at 14:00 works for me.\n\nMike') {
         meeting: /Thursday/.test(t.subject),
         task: /checklist/i.test(t.subject) ? { title: 'Finish the reconnect checks', due: 'next friday' } : null,
       }));
+      // A route that thought for too long: the answer stops mid-JSON at the output cap.
+      if (cutOff-- > 0) return Response.json({ id: 'gen-0', model: body.model, choices: [{ index: 0, finish_reason: 'length', message: { role: 'assistant', content: JSON.stringify({ threads: verdicts }).slice(0, 90) } }], usage });
       return Response.json({ id: 'gen-1', model: body.model, choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ threads: verdicts }) } }], usage });
     }
     return Response.json({
@@ -120,6 +122,9 @@ describe('the sorting pass', () => {
     expect(sorting[0].response_format.type).toBe('json_schema');
     // A background draft may check free/busy but cannot be steered into reading other mail or event titles.
     expect(drafting[0].tools.map((t: any) => t.function.name)).toEqual(['find_free_time', 'submit_reply']);
+    // The reply can only come back through submit_reply, never as loose prose, and evenings can be checked.
+    expect(drafting[0].tool_choice).toBe('required');
+    expect(Object.keys(drafting[0].tools[0].function.parameters.properties)).toContain('outsideWorkingHours');
     // The persona from onboarding reaches the drafting prompt.
     expect(drafting[0].messages[0].role).toBe('system');
     expect(JSON.stringify(drafting[0].messages[0].content)).toContain('Sign off with “Mike”');
@@ -215,6 +220,32 @@ describe('when the model fails', () => {
     expect(out.remaining).toBeGreaterThan(0);
     expect(out.error).toMatch(/usable answer/);
     expect(await resources(ctx, 'triage')).toHaveLength(0);
+  });
+
+  it('asks the fast model once more when its answer is cut off, and gives up after a second one', async () => {
+    // Its own sandbox: the one above has used up its runs for the day.
+    const fresh = await createDemo(), clear = () => db.resource.deleteMany({ where: { workspaceId: fresh.workspace.id, kind: { in: ['triage', 'draft'] } } });
+    try {
+      await clear();
+      mockOpenRouter(undefined, 1);
+      const retried = await runTriage(fresh, { maxSort: 10, maxDrafts: 0 });
+      expect(retried).toMatchObject({ sorted: 10, error: null });
+      // The same batch, asked twice.
+      expect(calls).toHaveLength(2);
+      expect(calls[1].messages.at(-1).content).toBe(calls[0].messages.at(-1).content);
+      expect(await resources(fresh, 'triage')).toHaveLength(10);
+
+      await clear();
+      calls.length = 0;
+      vi.unstubAllGlobals();
+      mockOpenRouter(undefined, 2);
+      const failed = await runTriage(fresh, { maxSort: 10, maxDrafts: 0 });
+      expect(failed).toMatchObject({ sorted: 0, error: 'The model did not return a usable answer. Nothing was changed.' });
+      expect(calls).toHaveLength(2);
+      expect(await resources(fresh, 'triage')).toHaveLength(0);
+    } finally {
+      await db.user.delete({ where: { id: fresh.user.id } });
+    }
   });
 });
 

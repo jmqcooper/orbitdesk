@@ -104,3 +104,21 @@ export function fileToBase64(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+/**
+ * Splits a reply body into what the author wrote and the quoted original
+ * beneath it, so the editor can keep the quote out of the way.
+ */
+export function splitQuote(body: string): { head: string; tail: string } {
+  const lines = body.replace(/\r\n/g, '\n').split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const attribution = /^On .+ wrote:$/.test(lines[i]!) && (lines[i + 1] ?? '').startsWith('>');
+    const forwarded = lines[i]!.startsWith('---------- Forwarded message');
+    if (attribution || forwarded || lines[i]!.startsWith('>')) {
+      let start = i;
+      while (start > 0 && lines[start - 1]!.trim() === '') start -= 1;
+      return { head: lines.slice(0, start).join('\n'), tail: lines.slice(start).join('\n') };
+    }
+  }
+  return { head: body, tail: '' };
+}

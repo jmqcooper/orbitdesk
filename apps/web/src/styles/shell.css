@@ -1,0 +1,551 @@
+/* ---------------- App frame ---------------- */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.app--agent {
+  grid-template-columns: var(--rail) minmax(0, 1fr) var(--panel);
+}
+
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -40px;
+  z-index: 300;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 13px;
+}
+
+.skip-link:focus {
+  top: 8px;
+}
+
+/* ---------------- Rail ---------------- */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 0 10px;
+  background: var(--bg-sunk);
+  border-right: 1px solid var(--line);
+}
+
+.rail__mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 10px;
+}
+
+.rail__link {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 36px;
+  border-radius: 9px;
+  color: var(--ink-3);
+  transition: background 0.12s, color 0.12s;
+}
+
+.rail__link:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.rail__link.is-active {
+  background: var(--active);
+  color: var(--ink);
+}
+
+.rail__link--agent.is-active {
+  color: var(--agent);
+}
+
+.rail__badge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--ink);
+  box-shadow: 0 0 0 2px var(--bg-sunk);
+  color: var(--bg);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.rail__badge--agent {
+  background: var(--agent);
+  color: #fff;
+}
+
+.rail__badge--warn {
+  background: var(--warn);
+  color: #fff;
+}
+
+.rail__demo {
+  margin: 2px 0 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.rail__gap {
+  flex: 1;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--active);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.rail .pop__panel {
+  left: calc(100% + 8px);
+  bottom: 0;
+  right: auto;
+}
+
+/* ---------------- Main column ---------------- */
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--bar);
+  padding: 0 16px 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bar__title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+
+.bar__sub {
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.bar__gap {
+  flex: 1;
+  min-width: 8px;
+}
+
+.bar__sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--line);
+}
+
+.bar .seg {
+  margin: 0 10px;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.column {
+  width: 100%;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 12px 24px 64px;
+}
+
+.column--narrow {
+  max-width: 720px;
+}
+
+/* Lane and view tabs. */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* The lane you are in is the one in ink; nothing is boxed. */
+.tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--ink-3);
+  white-space: nowrap;
+  transition: color 0.12s;
+}
+
+.tabs__tab:hover {
+  color: var(--ink);
+}
+
+.tabs__tab.is-active {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.tabs__count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabs__tab.is-active .tabs__count {
+  color: var(--ink-2);
+}
+
+/* Account filter. */
+.acctfilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.acctfilter:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.acctfilter__dots {
+  display: inline-flex;
+}
+
+.acctfilter__dots .acct-dot {
+  margin-left: -3px;
+  box-shadow: 0 0 0 1.5px var(--bg);
+}
+
+.acctfilter__dots .acct-dot:first-child {
+  margin-left: 0;
+}
+
+.acctlist {
+  width: 280px;
+  max-height: min(60dvh, 460px);
+  overflow-y: auto;
+}
+
+.acctlist .menu__item {
+  min-height: 34px;
+}
+
+.acctlist__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.acctlist__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.acctlist__email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.acctlist .is-off {
+  opacity: 0.45;
+}
+
+/* ---------------- Command palette ---------------- */
+
+.dialog.palette {
+  width: min(600px, calc(100vw - 24px));
+  margin-top: 14vh;
+}
+
+.palette__field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+}
+
+.palette__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.palette__input:focus-visible {
+  outline: none;
+}
+
+.palette__list {
+  max-height: min(52dvh, 420px);
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.palette__section {
+  padding: 8px 10px 4px;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--ink-3);
+}
+
+.palette__item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.palette__item.is-active {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.palette__item--agent > svg:first-child {
+  color: var(--agent);
+}
+
+.palette__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.palette__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.palette__detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.palette__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.palette__empty,
+.palette__error {
+  padding: 18px 12px;
+  font-size: 13px;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.palette__error {
+  color: var(--danger);
+}
+
+/* Shortcut sheet. */
+.keys {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 28px;
+}
+
+.keys__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 30px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.keys__keys {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.keys__head {
+  grid-column: 1 / -1;
+  margin-top: 10px;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--ink-3);
+}
+
+.keys__head:first-child {
+  margin-top: 0;
+}
+
+/* ---------------- Boot ---------------- */
+
+.boot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 100dvh;
+  padding: 24px;
+  text-align: center;
+}
+
+.boot__mark {
+  animation: breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.boot__label {
+  max-width: 420px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.boot__title {
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.boot__error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+
+/* ---------------- Small screens ---------------- */
+
+@media (max-width: 760px) {
+  .app,
+  .app--agent {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .rail {
+    order: 2;
+    flex-direction: row;
+    justify-content: space-around;
+    gap: 0;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    border-right: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .rail__mark,
+  .rail__gap,
+  .rail__demo {
+    display: none;
+  }
+
+  .rail .pop__panel {
+    left: auto;
+    right: 0;
+    bottom: calc(100% + 8px);
+  }
+
+  .bar {
+    gap: 2px;
+    padding: 0 6px 0 8px;
+  }
+
+  .tabs__tab {
+    gap: 5px;
+    padding: 0 8px;
+  }
+
+  /* The dots alone say which accounts are in view. */
+  .acctfilter {
+    gap: 4px;
+    padding: 0 4px;
+  }
+
+  .acctfilter > span:not(.acctfilter__dots) {
+    display: none;
+  }
+
+  .column {
+    padding: 8px 10px 48px;
+  }
+
+  .toasts {
+    bottom: 76px;
+  }
+
+  .keys {
+    grid-template-columns: 1fr;
+  }
+}

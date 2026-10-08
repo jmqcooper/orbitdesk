@@ -10,6 +10,7 @@ import * as V from './validation';
 import * as views from './views';
 import type * as T from './types';
 import { matchesMailQuery } from './mail-search';
+import { decorate, decorateOne, laneOf, triageIndex } from './lanes';
 
 export const list=<X>(items:X[],gaps:T.SourceGap[]=[]):T.ListResult<X>=>({items,nextCursor:null,gaps});
 export function scopeAvailable(c:Connection,area:string,ctx:Context) {return ctx.workspace.demo||(area==='files'?GOOGLE_SCOPES.files.slice(0,2).some(s=>c.scopes.includes(s)):c.scopes.includes(GOOGLE_SCOPES[area]?.[0]||''));}
@@ -26,7 +27,9 @@ export async function gapList(ctx:Context,area:T.ResourceKind):Promise<T.SourceG
     return [{accountId:c.id,resource:area,resourceId:null,code,message}];
   });
 }
-export async function getThreads(ctx:Context,q='',folder='inbox',labelId?:string,searchLimit=100) {
+export async function getThreads(ctx:Context,q='',folder='inbox',labelId?:string,searchLimit=100,lane?:string) {
+  // Waiting spans every folder: most mail the owner is waiting on never sat in the inbox.
+  if(lane==='waiting')folder='all';
   const gaps=await gapList(ctx,'mail');
   const matching=new Set<string>();
   if(q&&!ctx.workspace.demo){
@@ -56,17 +59,20 @@ export async function getThreads(ctx:Context,q='',folder='inbox',labelId?:string
   // can lag behind a change made in Gmail, so they must not veto Google's matches.
   if(!q||ctx.workspace.demo){rows=rows.filter(t=>folder==='trash'?t.trashed:!t.trashed&& (folder==='inbox'?t.inInbox:folder==='unread'?t.inInbox&&t.unread:folder==='starred'?t.starred:folder==='sent'?t.labelIds.includes('SENT'):true));if(labelId)rows=rows.filter(t=>t.labelIds.includes(labelId));}
   if(q){if(ctx.workspace.demo)rows=rows.filter(t=>matchesMailQuery(views.threadDetailView(cached.find(r=>r.id===t.id)!),q));else{const selected=new Set(cached.filter(r=>matching.has(`${r.connectionId}:${r.providerId}`)).map(r=>r.id));rows=rows.filter(t=>selected.has(t.id));}}
-  rows.sort((a,b)=>b.lastMessageAt.localeCompare(a.lastMessageAt));return list(rows,gaps);
+  rows.sort((a,b)=>b.lastMessageAt.localeCompare(a.lastMessageAt));
+  const index=await triageIndex(ctx),byId=new Map(cached.map(r=>[r.id,r]));for(const t of rows)decorate(t,byId.get(t.id)!,index);
+  if(lane){rows=rows.filter(t=>laneOf(t)===lane);if(lane==='reply')rows.sort((a,b)=>Number(b.triage!.urgent)-Number(a.triage!.urgent)||b.lastMessageAt.localeCompare(a.lastMessageAt));}
+  return list(rows,gaps);
 }
-export async function getThread(ctx:Context,id:string) {let r=await resource(ctx,id,'thread');const c=await connection(ctx,r.connectionId);assertScope(c,'mail',ctx);if(!ctx.workspace.demo)r=await hydrateThread(c,r.providerId);return views.threadDetailView(r);}
+export async function getThread(ctx:Context,id:string) {let r=await resource(ctx,id,'thread');const c=await connection(ctx,r.connectionId);assertScope(c,'mail',ctx);if(!ctx.workspace.demo)r=await hydrateThread(c,r.providerId);return decorateOne(views.threadDetailView(r),r);}
 export async function modifyThread(ctx:Context,id:string,input:unknown) {
   const v=V.threadAction.parse(input),r=await resource(ctx,id,'thread'),c=await connection(ctx,r.connectionId);assertScope(c,'mail',ctx);const d=object(r.data),labels=new Set<string>(d.labels as string[]||[]);
   const changes:Record<string,[string[],string[]]>={archive:[[],['INBOX']],unarchive:[['INBOX'],[]],mark_read:[[],['UNREAD']],mark_unread:[['UNREAD'],[]],star:[['STARRED'],[]],unstar:[[],['STARRED']],trash:[['TRASH'],['INBOX']],restore:[['INBOX'],['TRASH']]};
   let [add,remove]=changes[v.action]||[v.addLabelIds||[],v.removeLabelIds||[]];
   if(v.action==='label'){if(!add.length&&!remove.length)throw new AppError('validation_failed','Choose a label to add or remove.',422);const valid=await resources(ctx,'label',c.id);for(const label of [...add,...remove])if(!valid.some(l=>l.providerId===label))throw new AppError('validation_failed','Label does not belong to this account.',422);}
   if(v.messageId&&!((d.messages||[]) as any[]).some(m=>m.id===v.messageId))throw new AppError('not_found','Message not found in this thread.',404);
-  if(!ctx.workspace.demo){if(v.action==='trash'||v.action==='restore')await api(c,`gmail/threads/${enc(r.providerId)}/${v.action==='trash'?'trash':'untrash'}`,{method:'POST'});else await api(c,`gmail/${v.messageId?'messages/'+enc(v.messageId):'threads/'+enc(r.providerId)}/modify`,{method:'POST',body:JSON.stringify({addLabelIds:add,removeLabelIds:remove})});return views.threadView(await hydrateThread(c,r.providerId));}
-  add.forEach(x=>labels.add(x));remove.forEach(x=>labels.delete(x));const saved=await put(c,'thread',r.providerId,{...d,labels:[...labels],unread:labels.has('UNREAD'),starred:labels.has('STARRED'),inInbox:labels.has('INBOX'),trashed:labels.has('TRASH')},undefined,randomUUID());await activity(ctx,'mail.'+v.action,`${v.action.replaceAll('_',' ')}: ${d.subject}`,{},c.id,r.id);return views.threadView(saved);
+  if(!ctx.workspace.demo){if(v.action==='trash'||v.action==='restore')await api(c,`gmail/threads/${enc(r.providerId)}/${v.action==='trash'?'trash':'untrash'}`,{method:'POST'});else await api(c,`gmail/${v.messageId?'messages/'+enc(v.messageId):'threads/'+enc(r.providerId)}/modify`,{method:'POST',body:JSON.stringify({addLabelIds:add,removeLabelIds:remove})});const fresh=await hydrateThread(c,r.providerId);return decorateOne(views.threadView(fresh),fresh);}
+  add.forEach(x=>labels.add(x));remove.forEach(x=>labels.delete(x));const saved=await put(c,'thread',r.providerId,{...d,labels:[...labels],unread:labels.has('UNREAD'),starred:labels.has('STARRED'),inInbox:labels.has('INBOX'),trashed:labels.has('TRASH')},undefined,randomUUID());await activity(ctx,'mail.'+v.action,`${v.action.replaceAll('_',' ')}: ${d.subject}`,{},c.id,r.id);return decorateOne(views.threadView(saved),saved);
 }
 async function mime(conn:Connection,d:any) {
   const transport=nodemailer.createTransport({streamTransport:true,buffer:true,newline:'unix'});

@@ -63,7 +63,11 @@ export async function mailMessage(conn:Connection,msg:any) {
   return {id:msg.id,providerId:msg.id,from,to:addresses(parsed.to),cc:addresses(parsed.cc),bcc:own?addresses(parsed.bcc):[],replyTo:addresses(parsed.replyTo),subject:parsed.subject||'(No subject)',sentAt:new Date(Number(msg.internalDate)||Date.now()).toISOString(),snippet:msg.snippet||'',bodyText:text||null,bodyHtml:html?safeHtml(html):null,attachments,unread:(msg.labelIds||[]).includes('UNREAD'),starred:(msg.labelIds||[]).includes('STARRED'),outgoing:own,_messageId:parsed.messageId||null,_references:Array.isArray(parsed.references)?parsed.references:parsed.references?[parsed.references]:[]};
 }
 export async function hydrateThread(conn:Connection,id:string) {
-  const t=await api(conn,`gmail/threads/${enc(id)}?format=full`);const messages=await Promise.all((t.messages||[]).map((m:any)=>mailMessage(conn,m)));messages.sort((a,b)=>a.sentAt.localeCompare(b.sentAt));
+  const t=await api(conn,`gmail/threads/${enc(id)}?format=full`);
+  // Gmail lists unsent drafts among a thread's messages. They are not part of the conversation yet:
+  // counted as mail, a waiting draft would look like the owner had already answered.
+  const sent=(t.messages||[]).filter((m:any)=>!(m.labelIds||[]).includes('DRAFT'));
+  const messages=await Promise.all((sent.length?sent:t.messages||[]).map((m:any)=>mailMessage(conn,m)));messages.sort((a,b)=>a.sentAt.localeCompare(b.sentAt));
   const labels=[...new Set<string>((t.messages||[]).flatMap((m:any)=>m.labelIds||[]))];
   const participants=[...new Map(messages.flatMap(m=>[m.from,...m.to]).filter(a=>a.email!==conn.email).map(a=>[a.email,a])).values()];
   return put(conn,'thread',t.id,{subject:messages[0]?.subject||'(No subject)',snippet:t.snippet||messages.at(-1)?.snippet||'',messages,participants,messageCount:messages.length,unread:labels.includes('UNREAD'),starred:labels.includes('STARRED'),inInbox:labels.includes('INBOX'),trashed:labels.includes('TRASH'),hasAttachments:messages.some(m=>m.attachments.length),labels,lastMessageAt:messages.at(-1)?.sentAt||new Date().toISOString(),url:`https://mail.google.com/mail/u/${enc(conn.email)}/#all/${t.id}`},undefined,t.historyId);

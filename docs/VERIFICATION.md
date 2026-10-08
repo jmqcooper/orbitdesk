@@ -2,6 +2,25 @@
 
 Verified on 4 and 6 October 2026. [Hosted app](https://web-production-cbebe.up.railway.app) · [GitHub CI](https://github.com/jmqcooper/orbitdesk/actions).
 
+## Agent and interface rewrite, 8 October 2026
+
+This change replaced the nine-page interface with a mail-first one, moved every model call to OpenRouter, and added background sorting and reply drafting. It was verified locally only. Nothing below was run against the hosted deployment, a real Google account or a live model.
+
+Checked:
+
+- `pnpm typecheck`, `pnpm test` (46 checks) and `pnpm build` pass against a separate local Postgres database.
+- Nine new integration checks drive the sorting and drafting agent against a mocked OpenRouter endpoint: the fast model receives a JSON-schema request and the agent model a tool-calling one; a lane the message direction rules out is corrected; reply recipients come from headers; background drafts get free/busy only; a draft somebody started is never overwritten; accounts with agent access off are never sent; a failing model changes nothing and reports why. A tenth checks, against a mocked Gmail response, that an unsent draft is not counted as a message of its conversation.
+- In headless Chrome against the local dev server, in the sandbox: the sorted lanes, opening a conversation with its prepared draft, sending with `⌘↵` and advancing to the next conversation, the suggested-task chip, the Other lane, search, the command menu, calendar, tasks, files, settings, both setup screens for a non-sandbox user, dark and light themes, and a 390-pixel viewport.
+- With a local stand-in for the model endpoint: *Sort now*, drafting on request, rewriting a draft from a typed instruction, and a question in the agent panel with its tool trace and sources.
+
+Not checked:
+
+- Real requests to `typesafe/jev-router` and `z-ai/glm-5.3-flash`. No OpenRouter key was available, so output quality, latency, cost and structured-output behaviour of the two models are unverified.
+- The worker's sort-after-sync path on real mail, and anything involving Google.
+- `OPENROUTER_DATA_COLLECTION=deny` routing for either model.
+
+The sandbox's opening lanes and drafts are seeded sample data, not model output.
+
 ## Automated checks
 
 `pnpm typecheck`, `pnpm test` and `pnpm build` pass. The 36 integration checks use a real Postgres database. The 6 October local suite also passed in a fresh temporary database, which was removed afterward. They cover session and origin enforcement, workspace isolation, scoped account selection, Gmail-style sandbox search, exact-account brief caching, task CRUD, reply account routing, MIME reply headers/Bcc/attachments, stale drafts, approval races, replay protection, durable scheduling, uncertain provider outcomes, approved document edits, calendar dates/DST, encrypted credentials, HTML sanitization, paginated Gmail history and mail retention. New quota checks verify read backoff, bounded retries, no automatic send retry, distinct permission denials and independent per-service sync results. An actual queued-job check verifies the extended one-hour lifetime for initial mailbox imports. Search checks verify bounded Google result pagination, current provider folder membership despite stale cached labels, cache reuse and hydration of uncached older conversations.

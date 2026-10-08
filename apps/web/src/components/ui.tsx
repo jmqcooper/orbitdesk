@@ -27,10 +27,9 @@ export function OrbitMark({ size = 24, className }: { size?: number; className?:
       aria-hidden="true"
       focusable="false"
     >
-      <ellipse cx="16" cy="16" rx="13.2" ry="6.1" transform="rotate(-28 16 16)" stroke="currentColor" strokeWidth="1.5" />
-      <ellipse cx="16" cy="16" rx="13.2" ry="6.1" transform="rotate(32 16 16)" stroke="currentColor" strokeWidth="1.5" opacity="0.42" />
-      <circle cx="16" cy="16" r="3.4" fill="currentColor" />
-      <circle cx="27.4" cy="9.6" r="2.5" fill="var(--accent)" />
+      <ellipse cx="16" cy="16" rx="13" ry="6.2" transform="rotate(-28 16 16)" stroke="currentColor" strokeWidth="2" />
+      <circle cx="16" cy="16" r="3.6" fill="currentColor" />
+      <circle cx="27.2" cy="9.8" r="3" fill="var(--agent)" stroke="var(--bg)" strokeWidth="1.5" />
     </svg>
   );
 }
@@ -48,11 +47,11 @@ export function Spinner({ size = 16, label }: { size?: number; label?: string })
 
 /* ---------------- Buttons ---------------- */
 
-type ButtonVariant = 'primary' | 'accent' | 'outline' | 'ghost' | 'danger';
+type ButtonVariant = 'primary' | 'accent' | 'agent' | 'outline' | 'ghost' | 'danger';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
-  size?: 'sm' | 'md';
+  size?: 'sm' | 'md' | 'lg';
   icon?: ReactNode;
   busy?: boolean;
 }
@@ -61,7 +60,7 @@ export function Button({ variant = 'outline', size = 'md', icon, busy, children,
   return (
     <button
       type={type ?? 'button'}
-      className={clsx('btn', `btn--${variant}`, size === 'sm' && 'btn--sm', className)}
+      className={clsx('btn', `btn--${variant}`, size !== 'md' && `btn--${size}`, className)}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       {...rest}
@@ -104,7 +103,7 @@ interface DialogProps {
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   /** Subtitle rendered under the title. */
   kicker?: ReactNode;
   className?: string;
@@ -611,29 +610,5 @@ export function LoadingBlock({ label }: { label: string }) {
       <Spinner size={18} />
       <span>{label}</span>
     </div>
-  );
-}
-
-/** Page heading used by every view: mono kicker, serif title, optional actions. */
-export function ViewHeader({
-  kicker,
-  title,
-  children,
-  aside,
-}: {
-  kicker?: ReactNode;
-  title: ReactNode;
-  children?: ReactNode;
-  aside?: ReactNode;
-}) {
-  return (
-    <header className="view-head">
-      <div className="view-head__main">
-        {kicker && <p className="kicker">{kicker}</p>}
-        <h1 className="view-head__title">{title}</h1>
-        {children && <div className="view-head__sub">{children}</div>}
-      </div>
-      {aside && <div className="view-head__aside">{aside}</div>}
-    </header>
   );
 }

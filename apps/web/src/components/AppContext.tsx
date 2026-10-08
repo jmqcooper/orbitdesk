@@ -23,8 +23,6 @@ export interface ComposeRequest {
   threadId?: Id | null;
   inReplyToMessageId?: Id | null;
   fields?: Partial<ComposeFields>;
-  /** Short context line shown in the composer header, e.g. the thread subject. */
-  contextLabel?: string;
 }
 
 export interface AssistantSeed {
@@ -34,6 +32,8 @@ export interface AssistantSeed {
   send?: boolean;
 }
 
+export type SettingsSection = 'accounts' | 'voice' | 'agent' | 'preferences' | 'data';
+
 export interface AppContextValue {
   boot: Bootstrap;
   auth: AuthConfig;
@@ -41,7 +41,7 @@ export interface AppContextValue {
   refreshBoot: () => void;
   patchBoot: (updater: (boot: Bootstrap) => Bootstrap) => void;
   account: (id: Id | null | undefined) => Connection | undefined;
-  /** Accounts selected in the rail. Empty means all. */
+  /** Accounts the views are filtered to. Empty means all. */
   scope: Id[];
   setScope: (ids: Id[]) => void;
   /** `accountId` query value for list requests: undefined when every account is selected. */
@@ -54,9 +54,14 @@ export interface AppContextValue {
   /** Toast a failed mutation with its server message. */
   reportError: (error: unknown, what: string) => void;
   compose: (request: ComposeRequest) => void;
+  /** Open the agent panel, optionally handing it a question. */
+  ask: (seed?: AssistantSeed) => void;
   assistantSeed: AssistantSeed | null;
   setAssistantSeed: (seed: AssistantSeed | null) => void;
+  agentOpen: boolean;
+  setAgentOpen: (open: boolean) => void;
   openPalette: () => void;
+  openSettings: (section?: SettingsSection) => void;
   signOut: () => void;
 }
 
@@ -101,7 +106,7 @@ export function AccountBadge({
   const found = account(accountId);
   if (!found) {
     return (
-      <span className={clsx('acct-badge acct-badge--unknown', className)} title="This account is no longer connected">
+      <span className={clsx('acct-badge', className)} title="This account is no longer connected">
         <span className="acct-dot acct-dot--hollow" aria-hidden="true" />
         <span className="acct-badge__label">{accountId ? 'Removed account' : 'No account'}</span>
       </span>
@@ -111,62 +116,39 @@ export function AccountBadge({
   return (
     <span
       className={clsx('acct-badge', className)}
-      title={`${found.email}${found.demo ? ' · simulated demo account' : ''}${needsAttention && found.statusDetail ? ` · ${found.statusDetail}` : ''}`}
+      title={`${found.email}${found.demo ? ' · simulated account' : ''}${needsAttention && found.statusDetail ? ` · ${found.statusDetail}` : ''}`}
     >
       <AccountDot account={found} />
-      <span className="acct-badge__label">{found.label}</span>
-      {showEmail && <span className="acct-badge__email">{found.email}</span>}
-      {found.demo && <span className="acct-badge__demo">demo</span>}
+      <span className="acct-badge__label">{showEmail ? found.email : found.label}</span>
       {needsAttention && <TriangleAlert size={12} className="acct-badge__warn" aria-label="Needs attention" />}
     </span>
   );
 }
 
-const RESOURCE_NOUN: Record<SourceGap['resource'], string> = {
-  mail: 'mail',
-  calendar: 'calendar',
-  tasks: 'tasks',
-  contacts: 'contacts',
-  files: 'files',
-};
-
 /**
  * Lists the sources a result could not read, so a partial list never looks complete.
- * `onLeave` runs before navigating to Connections (for example to close a dialog).
+ * `onLeave` runs before opening account settings (for example to close a dialog).
  */
 export function GapNotice({ gaps, onLeave }: { gaps: SourceGap[]; onLeave?: () => void }) {
-  const { account, navigate } = useApp();
+  const { account, openSettings } = useApp();
   if (!gaps.length) return null;
+  const names = Array.from(new Set(gaps.map((gap) => account(gap.accountId)?.label ?? 'an account')));
   return (
-    <div className="notice notice--warn gap-notice" role="status">
-      <TriangleAlert size={15} aria-hidden="true" />
-      <div className="notice__text">
-        <strong>
-          {gaps.length === 1 ? 'One source could not be read' : `${gaps.length} sources could not be read`} — these results are incomplete.
-        </strong>
-        <ul className="gap-notice__list">
-          {gaps.map((gap, index) => {
-            const found = account(gap.accountId);
-            return (
-              <li key={`${gap.accountId ?? 'none'}-${gap.resourceId ?? gap.resource}-${index}`}>
-                <span className="gap-notice__who">
-                  {found ? found.label : 'Unknown account'} · {RESOURCE_NOUN[gap.resource] ?? gap.resource}
-                </span>{' '}
-                {gap.message}
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+    <div className="notice notice--warn gap-notice" role="status" title={gaps.map((gap) => gap.message).join('\n')}>
+      <TriangleAlert size={14} aria-hidden="true" />
+      <span className="notice__text">
+        Incomplete: {names.slice(0, 3).join(', ')}
+        {names.length > 3 ? ` and ${names.length - 3} more` : ''} could not be read.
+      </span>
       <button
         type="button"
         className="link-btn"
         onClick={() => {
           onLeave?.();
-          navigate('#/connections');
+          openSettings('accounts');
         }}
       >
-        Review accounts
+        Fix
       </button>
     </div>
   );

@@ -1,59 +1,25 @@
 'use client';
 
 import clsx from 'clsx';
-import {
-  Copy,
-  ExternalLink,
-  File as FileIcon,
-  FileSpreadsheet,
-  FileText,
-  Folder,
-  FolderOpen,
-  Image as ImageIcon,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  Presentation,
-  RotateCw,
-  Search,
-  Sparkles,
-  Trash2,
-  X,
-  type LucideIcon,
-} from 'lucide-react';
-import { useState } from 'react';
+import { Copy, File as FileIcon, FileSpreadsheet, FileText, Folder, FolderOpen, Image as ImageIcon, MoreHorizontal, Pencil, Plus, Presentation, Search, Sparkles, Trash2, type LucideIcon } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { canAct, hasPermission } from '@/lib/accounts';
-import { api, ApiRequestError, googleAuthUrl, toApiError } from '@/lib/api';
-import { displayName, formatBytes, plural, relativeTime, safeHref } from '@/lib/format';
-import { useDebounced, useResource } from '@/lib/hooks';
+import { api, ApiRequestError, toApiError } from '@/lib/api';
+import { listTime, plural, safeHref } from '@/lib/format';
+import { useDebounced, useNow, useResource, useShortcuts } from '@/lib/hooks';
 import type { DriveFile, FileKind, Id } from '@/lib/types';
-import { AccountBadge, GapNotice, useApp } from '../AppContext';
-import { Markdown } from '../assistant/Markdown';
-import {
-  Button,
-  ConfirmDialog,
-  Dialog,
-  EmptyState,
-  ErrorState,
-  Field,
-  IconButton,
-  LoadingBlock,
-  Menu,
-  Notice,
-  SkeletonRows,
-  Spinner,
-  StaleNotice,
-  ViewHeader,
-} from '../ui';
+import { AccountDot, GapNotice, useApp } from '../AppContext';
+import { AccountFilter } from '../Shell';
+import { Button, ConfirmDialog, Dialog, EmptyState, ErrorState, Field, IconButton, Menu, Notice, SkeletonRows, Spinner } from '../ui';
 
-const KIND_META: Record<FileKind, { icon: LucideIcon; label: string }> = {
-  doc: { icon: FileText, label: 'Doc' },
-  sheet: { icon: FileSpreadsheet, label: 'Sheet' },
-  slides: { icon: Presentation, label: 'Slides' },
-  pdf: { icon: FileIcon, label: 'PDF' },
-  image: { icon: ImageIcon, label: 'Image' },
-  folder: { icon: Folder, label: 'Folder' },
-  other: { icon: FileIcon, label: 'File' },
+const KIND_ICON: Record<FileKind, LucideIcon> = {
+  doc: FileText,
+  sheet: FileSpreadsheet,
+  slides: Presentation,
+  pdf: FileIcon,
+  image: ImageIcon,
+  folder: Folder,
+  other: FileIcon,
 };
 
 const FILTERS: Array<{ id: FileKind | ''; label: string }> = [
@@ -61,59 +27,58 @@ const FILTERS: Array<{ id: FileKind | ''; label: string }> = [
   { id: 'doc', label: 'Docs' },
   { id: 'sheet', label: 'Sheets' },
   { id: 'slides', label: 'Slides' },
-  { id: 'pdf', label: 'PDFs' },
 ];
 
 type Creatable = 'doc' | 'sheet' | 'slides';
+const CREATABLE: Record<Creatable, string> = { doc: 'Doc', sheet: 'Sheet', slides: 'Slides' };
 
 export function FilesView() {
-  const { boot, scopeParam, scopeKey, toast, reportError, navigate } = useApp();
+  const { boot, account, scopeParam, scopeKey, toast, reportError, ask, openSettings } = useApp();
   const capability = boot.capabilities.files;
+  const now = useNow();
   const [text, setText] = useState('');
   const q = useDebounced(text.trim(), 350);
   const [kind, setKind] = useState<FileKind | ''>('');
-  const key = `files:${scopeKey}:${kind}:${q}`;
-  const files = useResource(capability.available ? key : null, (signal) =>
+  const files = useResource(capability.available ? `files:${scopeKey}:${kind}:${q}` : null, (signal) =>
     api.files({ accountId: scopeParam, q: q || undefined, kind: kind || undefined, limit: 50 }, { signal }),
   );
 
   const [creating, setCreating] = useState<Creatable | null>(null);
   const [renaming, setRenaming] = useState<DriveFile | null>(null);
   const [trashing, setTrashing] = useState<DriveFile | null>(null);
-  const [summary, setSummary] = useState<{ file: DriveFile; text: string | null; error: ApiRequestError | null } | null>(null);
   const [rowBusy, setRowBusy] = useState<Id | null>(null);
   const [trashBusy, setTrashBusy] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useShortcuts((event) => {
+    if (event.key === '/') {
+      event.preventDefault();
+      searchRef.current?.focus();
+    }
+  });
 
   const fileAccounts = boot.connections.filter((c) => canAct(c, 'files') && (!scopeParam || scopeParam.includes(c.id)));
   const missing = boot.connections.filter((c) => !hasPermission(c, 'files') && (!scopeParam || scopeParam.includes(c.id)));
 
   if (!capability.available) {
     return (
-      <div className="view view--narrow">
-        <ViewHeader kicker="Files" title="Drive, Docs, Sheets and Slides" />
-        <EmptyState
-          icon={<FolderOpen size={24} />}
-          title="Files are not available here"
-          action={
-            <Button onClick={() => navigate('#/settings/data')}>
-              See system status
-            </Button>
-          }
-        >
-          {capability.reason ??
-            'This deployment has not enabled the Drive integration. Mail, calendar and tasks work without it.'}
-        </EmptyState>
-        <div className="helpbox">
-          <h2 className="helpbox__title">What this view does once it is enabled</h2>
-          <ul>
-            <li>Lists the files each account has let Orbitdesk see — files you pick, and files it creates for you.</li>
-            <li>Creates a Doc, Sheet or Slides deck in the account you choose, and renames, copies or trashes files.</li>
-            <li>Asks the assistant for a summary of a selected document.</li>
-          </ul>
-          <p>
-            Access uses Google’s per-file permission (<code>drive.file</code>), so Orbitdesk never sees your whole Drive.
-          </p>
+      <div className="mail">
+        <header className="bar">
+          <span className="bar__title">Files</span>
+        </header>
+        <div className="scroll">
+          <EmptyState
+            icon={<FolderOpen size={24} />}
+            title="No account has shared its Drive yet"
+            action={
+              <Button variant="primary" size="sm" onClick={() => openSettings('accounts')}>
+                Grant Drive access
+              </Button>
+            }
+          >
+            Docs, Sheets and Slides appear here once an account allows it. The agent can then read and summarise them.
+          </EmptyState>
         </div>
       </div>
     );
@@ -126,24 +91,11 @@ export function FilesView() {
       if (result.file) {
         const created = result.file;
         files.mutate((current) => ({ ...current, items: [created, ...current.items] }));
-        toast({ tone: 'ok', message: `Copied as “${created.name}”.` });
-      } else {
-        files.reload();
-      }
+      } else files.reload();
     } catch (err) {
       reportError(err, 'Could not copy the file');
     } finally {
       setRowBusy(null);
-    }
-  };
-
-  const summarize = async (file: DriveFile) => {
-    setSummary({ file, text: null, error: null });
-    try {
-      const result = await api.fileAction({ action: 'summarize', fileId: file.id });
-      setSummary({ file, text: result.summary ?? '', error: null });
-    } catch (err) {
-      setSummary({ file, text: null, error: toApiError(err) });
     }
   };
 
@@ -157,7 +109,7 @@ export function FilesView() {
       toast({ message: `Moved “${trashing.name}” to the Drive trash.` });
       setTrashing(null);
     } catch (err) {
-      reportError(err, 'Could not move the file to trash');
+      reportError(err, 'Could not trash the file');
     } finally {
       setTrashBusy(false);
     }
@@ -184,182 +136,150 @@ export function FilesView() {
   const items = files.data?.items ?? [];
 
   return (
-    <div className="view view--files">
-      <ViewHeader
-        kicker={`Files · ${plural(fileAccounts.length, 'account')} with Drive access`}
-        title="Files"
-        aside={
-          <Menu
-            label="Create a file"
-            buttonClassName="btn btn--primary"
-            disabled={fileAccounts.length === 0}
-            button={
-              <>
-                <Plus size={15} aria-hidden="true" />
-                <span>New</span>
-              </>
-            }
-            items={[
-              { label: 'Google Doc', icon: <FileText size={15} />, onSelect: () => setCreating('doc') },
-              { label: 'Google Sheet', icon: <FileSpreadsheet size={15} />, onSelect: () => setCreating('sheet') },
-              { label: 'Google Slides', icon: <Presentation size={15} />, onSelect: () => setCreating('slides') },
-            ]}
-          />
-        }
-      >
-        Search Drive files across the accounts you selected. File access and editing depend on the permissions granted by each account.
-      </ViewHeader>
-
-      <div className="filebar">
-        <div className="searchfield" role="search">
+    <div className="mail">
+      <header className="bar">
+        <div className="searchbar">
           <Search size={15} aria-hidden="true" />
           <input
+            ref={searchRef}
+            className="searchbar__input"
             type="search"
-            className="searchfield__input"
             aria-label="Search files"
-            placeholder="Search authorized files"
+            placeholder="Search files"
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                setText('');
+                event.currentTarget.blur();
+              }
+            }}
           />
-          {text && (
-            <button type="button" className="searchfield__clear" aria-label="Clear search" onClick={() => setText('')}>
-              <X size={14} />
-            </button>
-          )}
+          {files.refreshing && <Spinner size={14} />}
         </div>
         <div className="seg" role="group" aria-label="File type">
           {FILTERS.map((filter) => (
-            <button
-              key={filter.id || 'all'}
-              type="button"
-              className={clsx('seg__btn', kind === filter.id && 'is-active')}
-              aria-pressed={kind === filter.id}
-              onClick={() => setKind(filter.id)}
-            >
+            <button key={filter.id || 'all'} type="button" className={clsx('seg__btn', kind === filter.id && 'is-active')} aria-pressed={kind === filter.id} onClick={() => setKind(filter.id)}>
               {filter.label}
             </button>
           ))}
         </div>
-        {files.refreshing && <Spinner size={14} label="Refreshing" />}
-        <IconButton label="Refresh" onClick={files.reload}>
-          <RotateCw size={16} />
-        </IconButton>
+        <AccountFilter />
+        <Menu
+          label="New file"
+          disabled={fileAccounts.length === 0}
+          button={<Plus size={17} />}
+          items={(Object.keys(CREATABLE) as Creatable[]).map((id) => ({ label: `New ${CREATABLE[id]}`, icon: (() => {
+            const Icon = KIND_ICON[id];
+            return <Icon size={15} />;
+          })(), onSelect: () => setCreating(id) }))}
+        />
+      </header>
+
+      <div className="scroll">
+        <div className="column">
+          {files.data && <GapNotice gaps={files.data.gaps} />}
+          {missing.length > 0 && fileAccounts.length > 0 && !q && (
+            <p className="quietnote">
+              {plural(missing.length, 'account')} {missing.length === 1 ? 'has' : 'have'} not shared Drive.{' '}
+              <button type="button" className="link-btn" onClick={() => openSettings('accounts')}>
+                Grant access
+              </button>
+            </p>
+          )}
+          {files.loading && <SkeletonRows count={7} />}
+          {files.error && !files.data && <ErrorState error={files.error} onRetry={files.reload} />}
+          {files.data && items.length === 0 && (
+            <EmptyState icon={q ? <Search size={22} /> : <FolderOpen size={22} />} title={q ? 'No files match' : 'No files yet'}>
+              {q ? 'Search looks at file names in the selected accounts.' : 'Create a Doc, Sheet or Slides deck with the plus button.'}
+            </EmptyState>
+          )}
+          {items.length > 0 && (
+            <ul className="rows" aria-label="Files">
+              {items.map((file) => {
+                const Icon = KIND_ICON[file.kind] ?? FileIcon;
+                const href = safeHref(file.url);
+                const readable = file.kind === 'doc' || file.kind === 'sheet' || file.kind === 'slides';
+                const main = (
+                  <>
+                    <AccountDot account={account(file.accountId)} size={7} />
+                    <span className="row__from row__from--file">
+                      <Icon size={15} aria-hidden="true" />
+                    </span>
+                    <span className="row__text">
+                      <span className="row__subject">{file.name || '(untitled)'}</span>
+                      <span className="row__summary">
+                        {account(file.accountId)?.label}
+                        {file.shared ? ' · shared' : ''}
+                      </span>
+                    </span>
+                    <span className="row__marks" />
+                    <time className="row__time num" dateTime={file.modifiedAt}>
+                      {listTime(file.modifiedAt, now)}
+                    </time>
+                  </>
+                );
+                return (
+                  <li key={file.id} className="row row--file">
+                    {href ? (
+                      <a className="row__main" href={href} target="_blank" rel="noopener noreferrer" title="Open in Google">
+                        {main}
+                      </a>
+                    ) : (
+                      <span className="row__main">{main}</span>
+                    )}
+                    <div className="row__actions">
+                      {rowBusy === file.id ? (
+                        <Spinner size={14} />
+                      ) : (
+                        <>
+                          {readable && boot.capabilities.agent.available && (
+                            <IconButton
+                              label="Summarise with the agent"
+                              onClick={() =>
+                                ask({
+                                  text: `Summarise “${file.name}”: the gist, decisions, and next steps.`,
+                                  context: [{ kind: 'file', id: file.id, accountId: file.accountId, title: file.name, snippet: null, url: file.url, occurredAt: file.modifiedAt }],
+                                  send: true,
+                                })
+                              }
+                            >
+                              <Sparkles size={15} />
+                            </IconButton>
+                          )}
+                          <Menu
+                            label={`Actions for ${file.name}`}
+                            button={<MoreHorizontal size={15} />}
+                            items={[
+                              { label: 'Rename', icon: <Pencil size={14} />, onSelect: () => setRenaming(file) },
+                              { label: 'Make a copy', icon: <Copy size={14} />, onSelect: () => void copy(file) },
+                              { label: 'Move to trash', icon: <Trash2 size={14} />, danger: true, onSelect: () => setTrashing(file) },
+                            ]}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {files.data?.nextCursor && (
+            <div className="more">
+              <Button size="sm" variant="ghost" busy={moreBusy} onClick={loadMore}>
+                Load more
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
-
-      {missing.length > 0 && (
-        <Notice
-          tone="info"
-          action={
-            <a className="link-btn" href="#/connections">
-              Manage permissions
-            </a>
-          }
-        >
-          {missing.length === 1 ? `${missing[0]!.label} has` : `${missing.length} accounts have`} not granted Drive access, so{' '}
-          {missing.length === 1 ? 'its' : 'their'} files are not listed.
-        </Notice>
-      )}
-      {files.data && <GapNotice gaps={files.data.gaps} />}
-      {files.error && files.data && <StaleNotice error={files.error} onRetry={files.reload} />}
-      {files.loading && <SkeletonRows count={8} />}
-      {files.error && !files.data && <ErrorState error={files.error} onRetry={files.reload} />}
-
-      {files.data && items.length === 0 && (
-        <EmptyState icon={<FolderOpen size={22} />} title={q || kind ? 'No files match' : 'No files yet'}>
-          {q || kind
-            ? 'Only files these accounts have authorized are searched.'
-            : 'Create a document with “New”, or open a file with Orbitdesk from Google Drive to make it appear here.'}
-        </EmptyState>
-      )}
-
-      {items.length > 0 && (
-        <div className="ftable" role="table" aria-label="Files">
-          <div className="ftable__head" role="row">
-            <span role="columnheader">Name</span>
-            <span role="columnheader">Account</span>
-            <span role="columnheader">Owner</span>
-            <span role="columnheader">Modified</span>
-            <span role="columnheader" className="sr-only">
-              Actions
-            </span>
-          </div>
-          {items.map((file) => {
-            const meta = KIND_META[file.kind] ?? KIND_META.other;
-            const Icon = meta.icon;
-            const href = safeHref(file.url);
-            return (
-              <div key={file.id} className="ftable__row" role="row">
-                <span className="ftable__name" role="cell">
-                  <span className={clsx('ficon', `ficon--${file.kind}`)} aria-hidden="true">
-                    <Icon size={16} />
-                  </span>
-                  {href ? (
-                    <a href={href} target="_blank" rel="noopener noreferrer" className="ftable__link">
-                      {file.name}
-                    </a>
-                  ) : (
-                    <span className="ftable__link">{file.name}</span>
-                  )}
-                  <span className="ftable__kind">
-                    {meta.label}
-                    {file.size ? ` · ${formatBytes(file.size)}` : ''}
-                    {file.shared ? ' · shared' : ''}
-                  </span>
-                </span>
-                <span role="cell">
-                  <AccountBadge accountId={file.accountId} />
-                </span>
-                <span role="cell" className="ftable__muted">
-                  {file.owner ? displayName(file.owner) : '—'}
-                </span>
-                <span role="cell" className="ftable__muted">
-                  {relativeTime(file.modifiedAt)}
-                </span>
-                <span role="cell" className="ftable__actions">
-                  {rowBusy === file.id ? (
-                    <Spinner size={15} />
-                  ) : (
-                    <Menu
-                      label={`Actions for ${file.name}`}
-                      button={<MoreHorizontal size={16} />}
-                      items={[
-                        ...(href
-                          ? [{ label: 'Open in Google', icon: <ExternalLink size={14} />, onSelect: () => window.open(href, '_blank', 'noopener') }]
-                          : []),
-                        {
-                          label: boot.capabilities.agent.available ? 'Summarize' : 'Summarize (assistant unavailable)',
-                          icon: <Sparkles size={14} />,
-                          disabled: !boot.capabilities.agent.available || file.kind === 'folder' || file.kind === 'image',
-                          onSelect: () => void summarize(file),
-                        },
-                        { label: 'Rename', icon: <Pencil size={14} />, onSelect: () => setRenaming(file) },
-                        { label: 'Make a copy', icon: <Copy size={14} />, disabled: file.kind === 'folder', onSelect: () => void copy(file) },
-                        'divider' as const,
-                        { label: 'Move to trash', icon: <Trash2 size={14} />, danger: true, onSelect: () => setTrashing(file) },
-                      ]}
-                    />
-                  )}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {files.data?.nextCursor && (
-        <div className="inbox__more">
-          <Button busy={moreBusy} onClick={loadMore}>
-            Load more files
-          </Button>
-        </div>
-      )}
 
       {creating && (
         <NameDialog
-          title={`New ${creating === 'doc' ? 'Google Doc' : creating === 'sheet' ? 'Google Sheet' : 'Google Slides deck'}`}
+          title={`New ${CREATABLE[creating]}`}
           confirmLabel="Create"
-          initialName=""
           accounts={fileAccounts.map((c) => ({ id: c.id, label: `${c.label} — ${c.email}` }))}
+          defaultAccountId={fileAccounts.find((c) => c.id === boot.settings.defaultAccountId)?.id ?? fileAccounts[0]?.id}
           onClose={() => setCreating(null)}
           onSubmit={async (name, accountId) => {
             const result = await api.fileAction({ action: 'create', accountId: accountId!, kind: creating, name });
@@ -367,95 +287,34 @@ export function FilesView() {
               const created = result.file;
               files.mutate((current) => ({ ...current, items: [created, ...current.items] }));
               const href = safeHref(created.url);
-              toast({
-                tone: 'ok',
-                message: `Created “${created.name}”.`,
-                action: href ? { label: 'Open', run: () => window.open(href, '_blank', 'noopener') } : undefined,
-              });
-            } else {
-              files.reload();
-            }
+              toast({ tone: 'ok', message: `Created “${created.name}”.`, action: href ? { label: 'Open', run: () => window.open(href, '_blank', 'noopener') } : undefined });
+            } else files.reload();
           }}
         />
       )}
 
       {renaming && (
         <NameDialog
-          title="Rename file"
+          title="Rename"
           confirmLabel="Rename"
           initialName={renaming.name}
           onClose={() => setRenaming(null)}
           onSubmit={async (name) => {
             const result = await api.fileAction({ action: 'rename', fileId: renaming.id, name });
-            const renamed = result.file;
-            if (renamed) files.mutate((current) => ({ ...current, items: current.items.map((item) => (item.id === renamed.id ? renamed : item)) }));
-            else files.reload();
+            if (result.file) {
+              const renamed = result.file;
+              files.mutate((current) => ({ ...current, items: current.items.map((item) => (item.id === renamed.id ? renamed : item)) }));
+            } else files.reload();
           }}
         />
       )}
 
       {trashing && (
-        <ConfirmDialog
-          title="Move to trash?"
-          confirmLabel="Move to trash"
-          danger
-          busy={trashBusy}
-          onClose={() => setTrashing(null)}
-          onConfirm={trash}
-        >
+        <ConfirmDialog title="Move to trash?" confirmLabel="Move to trash" danger busy={trashBusy} onClose={() => setTrashing(null)} onConfirm={trash}>
           <p>
-            “{trashing.name}” moves to the Google Drive trash of the account below. It can be restored from Drive for 30
-            days.
-          </p>
-          <p>
-            <AccountBadge accountId={trashing.accountId} showEmail />
+            “{trashing.name}” goes to the Drive trash of {account(trashing.accountId)?.email ?? 'its account'}. You can restore it from Google Drive.
           </p>
         </ConfirmDialog>
-      )}
-
-      {summary && (
-        <Dialog
-          title={summary.file.name}
-          size="lg"
-          onClose={() => setSummary(null)}
-          kicker={
-            <>
-              Summary by the assistant · <AccountBadge accountId={summary.file.accountId} />
-            </>
-          }
-          footer={
-            <>
-              {safeHref(summary.file.url) && (
-                <a className="btn btn--ghost dialog__foot-left" href={safeHref(summary.file.url)!} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink size={14} aria-hidden="true" />
-                  <span>Open the file</span>
-                </a>
-              )}
-              <Button variant="primary" onClick={() => setSummary(null)}>
-                Done
-              </Button>
-            </>
-          }
-        >
-          {summary.error ? (
-            <ErrorState compact error={summary.error} onRetry={() => void summarize(summary.file)} />
-          ) : summary.text === null ? (
-            <LoadingBlock label="Reading the file and writing a summary" />
-          ) : summary.text ? (
-            <Markdown text={summary.text} />
-          ) : (
-            <p className="prose-sm">The assistant returned an empty summary for this file.</p>
-          )}
-        </Dialog>
-      )}
-
-      {fileAccounts.length === 0 && boot.capabilities.googleConnect.available && boot.connections[0] && (
-        <p className="files__grant">
-          No selected account has Drive access.{' '}
-          <a className="link-btn" href={googleAuthUrl('connect', { accountId: boot.connections[0].id, features: ['files'] })}>
-            Grant it for {boot.connections[0].label}
-          </a>
-        </p>
       )}
     </div>
   );
@@ -464,20 +323,22 @@ export function FilesView() {
 function NameDialog({
   title,
   confirmLabel,
-  initialName,
+  initialName = '',
   accounts,
+  defaultAccountId,
   onClose,
   onSubmit,
 }: {
   title: string;
   confirmLabel: string;
-  initialName: string;
+  initialName?: string;
   accounts?: Array<{ id: Id; label: string }>;
+  defaultAccountId?: Id;
   onClose: () => void;
   onSubmit: (name: string, accountId: Id | undefined) => Promise<void>;
 }) {
   const [name, setName] = useState(initialName);
-  const [accountId, setAccountId] = useState<Id | undefined>(accounts?.[0]?.id);
+  const [accountId, setAccountId] = useState<Id | undefined>(defaultAccountId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiRequestError | null>(null);
 
@@ -512,30 +373,26 @@ function NameDialog({
     >
       <form
         className="form"
-        onSubmit={(e) => {
-          e.preventDefault();
+        onSubmit={(event) => {
+          event.preventDefault();
           void submit();
         }}
       >
         <Field label="Name">
-          <input className="input" type="text" value={name} onChange={(e) => setName(e.target.value)} data-autofocus />
+          <input className="input" type="text" value={name} onChange={(event) => setName(event.target.value)} data-autofocus />
         </Field>
-        {accounts && (
-          <Field label="Create in" hint="The file is created in this account’s Drive.">
-            <select className="input" value={accountId ?? ''} onChange={(e) => setAccountId(e.target.value)}>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label}
+        {accounts && accounts.length > 1 && (
+          <Field label="Account">
+            <select className="input" value={accountId} onChange={(event) => setAccountId(event.target.value)}>
+              {accounts.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
                 </option>
               ))}
             </select>
           </Field>
         )}
-        {error && (
-          <Notice tone="danger">
-            {error.message} <span className="mono-note">({error.code})</span>
-          </Notice>
-        )}
+        {error && <Notice tone="danger">{error.message}</Notice>}
         <button type="submit" hidden />
       </form>
     </Dialog>

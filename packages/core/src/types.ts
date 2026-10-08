@@ -185,8 +185,12 @@ export interface Capabilities {
   /** The worker is running schedules. */
   automations: Capability;
   scheduledSend: Capability;
-  /** Model identifier shown in the assistant, or `null` when `agent` is unavailable. */
+  /** Background sorting and reply drafting: needs both a model and the worker. */
+  triage: Capability;
+  /** Model that does multi-step work, or `null` when `agent` is unavailable. */
   agentModel: string | null;
+  /** Model that makes quick classifications, or `null` when `agent` is unavailable. */
+  fastModel: string | null;
   limits: {
     /** Total attachment bytes per message (decoded). */
     attachmentBytesPerMessage: number;
@@ -296,6 +300,12 @@ export interface Counts {
   tasksDue: number;
   eventsToday: number;
   unreadByAccount: Record<Id, number>;
+  /** Inbox conversations per lane. `unsorted` have not been triaged yet. */
+  lanes: Record<MailLane | 'unsorted', number>;
+  /** Reply drafts the agent has prepared that are waiting to be sent. */
+  draftsReady: number;
+  /** Work the agent may and will still do: conversations to sort, replies to draft. */
+  agentQueue: { sort: number; draft: number };
 }
 
 export interface WorkingHours {
@@ -320,6 +330,16 @@ export interface Settings {
   loadRemoteImages: boolean;
   /** Opt-in People API lookup for recipient suggestions. */
   contactLookup: boolean;
+  /** Voice guide, tone notes or persona prompt the agent writes in. */
+  voice: string | null;
+  /** Who the user is and what matters to them, in their own words. */
+  about: string | null;
+  /** Sort incoming mail into lanes as it arrives. */
+  autoTriage: boolean;
+  /** Prepare reply drafts for conversations in the `reply` lane. Nothing is sent. */
+  autoDraft: boolean;
+  /** Set once the setup wizard has been completed. */
+  onboardedAt: IsoDateTime | null;
 }
 
 export interface CalendarPreference {
@@ -329,8 +349,10 @@ export interface CalendarPreference {
 }
 
 /** PATCH /api/settings */
-export interface SettingsUpdateRequest extends Partial<Settings> {
+export interface SettingsUpdateRequest extends Partial<Omit<Settings, 'onboardedAt'>> {
   calendars?: CalendarPreference[];
+  /** Marks the setup wizard as finished and starts the first triage. */
+  onboarded?: true;
 }
 
 /** PATCH /api/settings response */
@@ -359,6 +381,43 @@ export const MAIL_FOLDERS = ['inbox', 'unread', 'starred', 'sent', 'all', 'trash
 export type MailFolder = (typeof MAIL_FOLDERS)[number];
 
 /**
+ * Where an inbox conversation sits after triage.
+ * - `reply`: someone is waiting on the mailbox owner.
+ * - `fyi`: worth reading, no answer expected.
+ * - `other`: bulk and automated mail.
+ * - `waiting`: the owner wrote last and a reply is still expected.
+ */
+export const MAIL_LANES = ['reply', 'fyi', 'other', 'waiting'] as const;
+export type MailLane = (typeof MAIL_LANES)[number];
+
+export const TRIAGE_DRAFT_STATES = ['none', 'pending', 'drafting', 'ready', 'failed'] as const;
+export type TriageDraftState = (typeof TRIAGE_DRAFT_STATES)[number];
+
+/** What the agent concluded about a conversation. Stored by the app, never written to Gmail. */
+export interface ThreadTriage {
+  lane: MailLane;
+  /** One line for the mailbox owner: what this is, or what is being asked. */
+  summary: string;
+  urgent: boolean;
+  /** The sender is trying to find a time. */
+  meeting: boolean;
+  /** Something the owner has to do besides replying. */
+  task: { title: string; due: IsoDate | null } | null;
+  /** The suggested task was added, or dismissed. */
+  taskDone: boolean;
+  draft: {
+    state: TriageDraftState;
+    /** The prepared Gmail draft while `state` is `ready`. */
+    draftId: Id | null;
+    /** What the agent checked or assumed, or why drafting failed. */
+    note: string | null;
+  };
+  /** The user moved it; the agent leaves it there until new mail arrives. */
+  manual: boolean;
+  triagedAt: IsoDateTime;
+}
+
+/**
  * A Gmail label. `id` is only guaranteed unique within its account, so any
  * request that names a label also carries that label's `accountId`.
  */
@@ -379,6 +438,8 @@ export interface ThreadListQuery {
   folder?: MailFolder;
   /** Restrict to one label. Sent with that label's `accountId` and `folder=all` for a label view. */
   labelId?: Id;
+  /** Inbox only: one triage lane, or `unsorted` for conversations not triaged yet. */
+  lane?: MailLane | 'unsorted';
   cursor?: string;
   /** 1–100, default 40. */
   limit?: number;
@@ -401,6 +462,8 @@ export interface ThreadSummary {
   /** Ids of `MailLabel`s on the thread (system and user). */
   labelIds: Id[];
   lastMessageAt: IsoDateTime;
+  /** `null` until the conversation has been triaged. */
+  triage: ThreadTriage | null;
 }
 
 export interface Attachment {
@@ -467,6 +530,34 @@ export interface ThreadActionRequest {
   removeLabelIds?: Id[];
   /** Apply `star`/`unstar`/`mark_*` to one message instead of the whole thread. */
   messageId?: Id;
+}
+
+/**
+ * POST /api/threads/:id/triage — correct or act on the agent's triage.
+ * `redraft` runs the drafting agent now (optionally steered by `instruction`)
+ * and replaces the agent's draft; it never sends.
+ */
+export interface ThreadTriageRequest {
+  lane?: Exclude<MailLane, 'waiting'>;
+  taskDone?: boolean;
+  redraft?: boolean;
+  instruction?: string;
+}
+
+export interface ThreadTriageResponse {
+  thread: ThreadSummary;
+  /** The draft written by `redraft`, else `null`. */
+  draft: Draft | null;
+}
+
+/** POST /api/triage/run — sort and draft a bounded batch now instead of waiting for the worker. */
+export interface TriageRunResult {
+  sorted: number;
+  drafted: number;
+  /** Conversations still waiting to be sorted or drafted. */
+  remaining: number;
+  /** Why the pass stopped early (a daily limit, or the model failing), safe to show; else `null`. */
+  error: string | null;
 }
 
 /* ------------------------------------------------------------------ */

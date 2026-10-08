@@ -14,6 +14,8 @@ export async function retainCache(now=new Date()) {
           AND (a.payload->'input'->>'threadId' = r.id OR a.payload->'input'->'source'->>'id' = r.id OR a.payload->'input'->'threadIds' ? r.id)
       )
   `;
+  // A verdict is only meaningful next to the conversation it describes.
+  await db.$executeRaw`DELETE FROM "Resource" t WHERE t.kind = 'triage' AND NOT EXISTS (SELECT 1 FROM "Resource" r WHERE r.id = t."parentId" AND r.kind = 'thread')`;
   await db.activity.deleteMany({where:{createdAt:{lt:new Date(now.getTime()-90*86400000)}}});
   await db.resource.deleteMany({where:{kind:'event',updatedAt:{lt:new Date(now.getTime()-90*86400000)}}});
 }

@@ -48,7 +48,7 @@ const KIND_ICON: Record<ActionKind, LucideIcon> = {
 };
 
 const STATE_META: Record<ActionState, { label: string; tone: Tone }> = {
-  proposed: { label: 'Needs your approval', tone: 'accent' },
+  proposed: { label: 'Needs your OK', tone: 'accent' },
   approved: { label: 'Approved', tone: 'info' },
   queued: { label: 'Queued', tone: 'info' },
   running: { label: 'Running', tone: 'info' },
@@ -61,7 +61,7 @@ const STATE_META: Record<ActionState, { label: string; tone: Tone }> = {
 
 const ORIGIN_META: Record<Action['origin'], { label: string; icon: LucideIcon }> = {
   user: { label: 'You', icon: User },
-  agent: { label: 'Assistant', icon: Sparkles },
+  agent: { label: 'Agent', icon: Sparkles },
   automation: { label: 'Automation', icon: Zap },
 };
 
@@ -410,7 +410,6 @@ export function ActionCard({
 
       {open && (
         <div className="acard__content">
-          {action.summary && <p className="acard__summary">{action.summary}</p>}
           {changed && (
             <div className="notice notice--warn" role="alert">
               <TriangleAlert size={15} aria-hidden="true" />
@@ -484,31 +483,24 @@ export function ActionCard({
             <footer className="acard__foot">
               {uncertain && (
                 <Button variant="outline" size="sm" icon={<X size={15} />} busy={busy === 'reject'} disabled={busy !== null} onClick={() => run('reject')}>
-                  Dismiss — I’ve checked
+                  Dismiss
                 </Button>
               )}
               {decidable && (
                 <>
                   <Button
-                    variant="accent"
+                    variant="primary"
                     size="sm"
                     icon={<Check size={15} />}
                     busy={busy === 'approve'}
                     disabled={busy !== null || !action.preview}
                     onClick={() => run('approve')}
                   >
-                    {action.kind === 'send_email'
-                      ? action.scheduledAt
-                        ? 'Approve and schedule'
-                        : 'Approve and send'
-                      : 'Approve'}
+                    {action.kind === 'send_email' ? (action.scheduledAt ? 'Schedule' : 'Send') : 'Approve'}
                   </Button>
-                  <Button variant="outline" size="sm" icon={<X size={15} />} busy={busy === 'reject'} disabled={busy !== null} onClick={() => run('reject')}>
+                  <Button variant="ghost" size="sm" busy={busy === 'reject'} disabled={busy !== null} onClick={() => run('reject')}>
                     Reject
                   </Button>
-                  <span className="acard__hash" title="Approval is bound to this exact content">
-                    #{action.contentHash.slice(0, 10)}
-                  </span>
                 </>
               )}
               {cancelable && (

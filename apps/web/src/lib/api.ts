@@ -58,6 +58,9 @@ import type {
   ThreadDetail,
   ThreadListQuery,
   ThreadSummary,
+  ThreadTriageRequest,
+  ThreadTriageResponse,
+  TriageRunResult,
 } from './types';
 
 /** Fired on `window` when any endpoint other than /api/session answers 401. */
@@ -239,6 +242,11 @@ export const api = {
   thread: (id: Id, o: Sig = {}) => request<ThreadDetail>('GET', `/api/threads/${enc(id)}`, o),
   threadAction: (id: Id, body: ThreadActionRequest) =>
     request<ThreadSummary>('POST', `/api/threads/${enc(id)}/actions`, { body }),
+  /** Correct a lane, settle a suggested task, or have the agent (re)write the reply draft. */
+  triageThread: (id: Id, body: ThreadTriageRequest, o: Sig = {}) =>
+    request<ThreadTriageResponse>('POST', `/api/threads/${enc(id)}/triage`, { ...o, body, timeoutMs: 120_000 }),
+  runTriage: (accountId?: Id | Id[]) =>
+    request<TriageRunResult>('POST', '/api/triage/run', { query: { accountId: ids(accountId) }, timeoutMs: 120_000 }),
 
   drafts: (q: { accountId?: Id | Id[]; threadId?: Id; cursor?: string; limit?: number }, o: Sig = {}) =>
     request<ListResult<Draft>>('GET', '/api/drafts', { ...o, query: { ...q, accountId: ids(q.accountId) } }),

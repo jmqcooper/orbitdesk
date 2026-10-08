@@ -1,0 +1,1062 @@
+/* ---------------- Mail list ---------------- */
+
+.mail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.mail[hidden] {
+  display: none;
+}
+
+.searchbar {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-3);
+}
+
+.searchbar__input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  font-size: 14.5px;
+  color: var(--ink);
+}
+
+.searchbar__input:focus-visible {
+  outline: none;
+}
+
+.searchbar__input::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* What the agent is doing right now. */
+.agentline {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  margin: 0 0 6px;
+  padding: 0 12px 6px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.agentline > svg {
+  color: var(--agent);
+}
+
+.agentline__text {
+  flex: 1;
+}
+
+.is-pulsing {
+  animation: breathe 1.4s ease-in-out infinite;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  position: relative;
+  border-radius: 9px;
+  animation: row-in 0.22s var(--ease) backwards;
+}
+
+.row:nth-child(1) { animation-delay: 0ms; }
+.row:nth-child(2) { animation-delay: 14ms; }
+.row:nth-child(3) { animation-delay: 28ms; }
+.row:nth-child(4) { animation-delay: 42ms; }
+.row:nth-child(5) { animation-delay: 56ms; }
+.row:nth-child(6) { animation-delay: 70ms; }
+.row:nth-child(7) { animation-delay: 84ms; }
+.row:nth-child(n + 8) { animation-delay: 96ms; }
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+.row.is-cursor {
+  background: var(--bg-sunk);
+}
+
+.row__main {
+  display: grid;
+  grid-template-columns: 7px 172px minmax(0, 1fr) auto 56px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: inherit;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+.row__from {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.row--unread .row__from {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.row__n {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.row__text {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.row__subject {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+
+.row--unread .row__subject {
+  font-weight: 600;
+}
+
+.row__summary {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-3);
+}
+
+.row__marks {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--ink-4);
+}
+
+.row__time {
+  justify-self: end;
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.row__actions {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
+  width: 92px;
+  height: 30px;
+}
+
+/* The row under the cursor trades its timestamp for actions, and makes room for them. */
+.row.is-cursor .row__main,
+.row:focus-within .row__main {
+  grid-template-columns: 7px 172px minmax(0, 1fr) auto 88px;
+}
+
+.row.is-cursor .row__actions,
+.row:focus-within .row__actions {
+  display: flex;
+}
+
+.row.is-cursor .row__time,
+.row:focus-within .row__time {
+  visibility: hidden;
+}
+
+/* Row marks are words, not badges. */
+.mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.mark--agent {
+  color: var(--agent-ink);
+}
+
+.mark--working {
+  animation: breathe 1.4s ease-in-out infinite;
+}
+
+.mark--urgent {
+  color: var(--danger);
+}
+
+.more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.hints {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 34px;
+  padding: 0 20px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.hints > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.hints .kbd {
+  color: var(--ink-2);
+}
+
+/* ---------------- Conversation ---------------- */
+
+.thread {
+  padding-top: 28px;
+}
+
+.thread__head {
+  margin-bottom: 16px;
+}
+
+.thread__subject {
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+}
+
+.thread__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+/* The agent's read of the conversation: its glyph, then plain words. */
+.gist {
+  display: flex;
+  gap: 9px;
+  margin: 0 0 16px;
+  color: var(--ink-2);
+}
+
+.gist > svg {
+  margin-top: 4px;
+  color: var(--agent);
+}
+
+.gist__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.gist__text {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.gist__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.gist__text + .gist__actions {
+  margin-top: 6px;
+}
+
+.gist__actions .icon-btn {
+  width: 24px;
+  height: 24px;
+}
+
+.suggest {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 550;
+  text-align: left;
+}
+
+.suggest > svg {
+  color: var(--ink-3);
+}
+
+.suggest:hover:not(:disabled) > span {
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+
+.thread__messages {
+  border-top: 1px solid var(--line);
+}
+
+.msg {
+  border-bottom: 1px solid var(--line);
+}
+
+.msg:last-child {
+  border-bottom: 0;
+}
+
+.msg__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+}
+
+.msg__toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 46px;
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.msg__name {
+  flex: none;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.msg__to,
+.msg__snippet {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-3);
+}
+
+.msg__to {
+  font-size: 12.5px;
+}
+
+.msg__time {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.msg__content {
+  padding: 2px 0 22px;
+}
+
+.msg__details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 14px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-sunk);
+  font-size: 12.5px;
+}
+
+.msg__details dt {
+  color: var(--ink-3);
+}
+
+.msg__details dd {
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+}
+
+.msg__body {
+  font-size: 15px;
+  line-height: 1.62;
+}
+
+.mailtext {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mailtext a,
+.md a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+
+.mailtext--empty {
+  color: var(--ink-3);
+}
+
+.mailtext--quoted {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--ink-3);
+  font-size: 13.5px;
+}
+
+.quoted {
+  margin-top: 10px;
+}
+
+.quoted summary {
+  display: inline-block;
+  color: transparent;
+  font-size: 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.quoted summary::-webkit-details-marker {
+  display: none;
+}
+
+.quoted summary::after {
+  content: '···';
+  color: var(--ink-3);
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+
+.quoted summary:hover::after {
+  color: var(--ink);
+}
+
+/* HTML mail is authored for a white page, so it always gets one. */
+.mailframe {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: #fff;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] .mailframe {
+  padding: 0 12px;
+}
+
+.imgblock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.msg__files,
+.composer__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.queued {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--agent-ink);
+}
+
+.replybar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* ---------------- Composer ---------------- */
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+}
+
+/* The inline reply is the next message in the conversation, not a card. */
+.composer--reply {
+  position: relative;
+  border-top: 1px solid var(--line);
+  background: transparent;
+}
+
+.composer--reply .composer__head {
+  min-height: 46px;
+  padding: 0;
+}
+
+.composer--reply .composer__summary {
+  align-items: baseline;
+  gap: 10px;
+  height: auto;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.composer--reply .composer__summary > svg {
+  align-self: center;
+}
+
+.composer--reply .composer__mode {
+  font-size: 13.5px;
+}
+
+.composer--reply .composer__fields,
+.composer--reply .composer__blocked {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.composer--reply .composer__body {
+  padding: 2px 0 8px;
+}
+
+.composer--reply .composer__fields + .composer__body {
+  padding-top: 14px;
+}
+
+.composer--reply .composer__quote,
+.composer--reply .composer__files,
+.composer--reply .composer__note,
+.composer--reply .composer__notice {
+  margin-right: 0;
+  margin-left: 0;
+}
+
+.composer--reply .composer__foot {
+  gap: 8px;
+  padding: 10px 0 0;
+}
+
+.composer.is-writing .composer__body {
+  opacity: 0.4;
+}
+
+.composer--sheet {
+  position: fixed;
+  right: 20px;
+  bottom: 0;
+  z-index: 90;
+  width: min(580px, calc(100vw - 24px));
+  max-height: min(680px, calc(100dvh - 40px));
+  border-radius: 14px 14px 0 0;
+  box-shadow: var(--shadow-sheet);
+  animation: sheet-up 0.2s var(--ease);
+}
+
+.app--agent .composer--sheet {
+  right: calc(var(--panel) + 20px);
+}
+
+@keyframes sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+.composer__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 6px 0 14px;
+}
+
+.composer--sheet .composer__head {
+  padding-top: 8px;
+}
+
+.composer__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 28px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.composer__summary:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.composer__mode {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.composer__to {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer__by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.composer__by > svg {
+  color: var(--agent);
+}
+
+.composer__fields {
+  padding: 2px 14px 0;
+}
+
+.composer__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 36px;
+  border-bottom: 1px solid var(--line);
+}
+
+.composer__label {
+  flex: none;
+  width: 52px;
+  padding-top: 9px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.composer__from {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+}
+
+.composer__select,
+.composer__subject {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.composer__select {
+  appearance: none;
+  cursor: pointer;
+}
+
+.composer__select:focus-visible,
+.composer__subject:focus-visible {
+  outline: none;
+}
+
+.composer__cc {
+  flex: none;
+  padding-top: 9px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.composer__cc:hover {
+  color: var(--ink);
+}
+
+.composer__body {
+  display: block;
+  width: 100%;
+  min-height: 88px;
+  padding: 12px 14px 6px;
+  border: 0;
+  background: transparent;
+  resize: none;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink);
+  transition: opacity 0.15s;
+}
+
+.composer--sheet .composer__body {
+  flex: 1;
+  min-height: 220px;
+}
+
+.composer__body:focus-visible {
+  outline: none;
+}
+
+.composer__quote {
+  display: inline-grid;
+  place-items: center;
+  align-self: flex-start;
+  height: 16px;
+  margin: 2px 14px 8px;
+  color: var(--ink-3);
+}
+
+.composer__quote:hover {
+  color: var(--ink);
+}
+
+.composer__files {
+  margin: 4px 14px 8px;
+}
+
+.composer__note {
+  margin: 0 14px 8px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.composer__notice {
+  margin: 0 10px 8px;
+}
+
+.composer__blocked {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.composer__foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 8px 10px;
+}
+
+.composer__status {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.composer__status.is-error {
+  color: var(--danger);
+}
+
+.split {
+  display: inline-flex;
+}
+
+.split__main {
+  border-radius: var(--radius) 0 0 var(--radius);
+  padding-right: 10px;
+}
+
+.split__main .kbd {
+  color: inherit;
+  opacity: 0.55;
+}
+
+.split__more {
+  width: 28px;
+  padding: 0;
+  margin-left: 1px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.schedule {
+  width: 280px;
+}
+
+.schedule__custom {
+  display: flex;
+  gap: 6px;
+  padding: 6px 5px 3px;
+}
+
+.schedule__off {
+  padding: 4px 9px 8px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+/* Tell the agent what to change: a line to type on, beside Send. */
+.agentask {
+  display: flex;
+  flex: 1 1 200px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 360px;
+  height: 32px;
+  margin-left: 8px;
+  border-bottom: 1px solid transparent;
+  color: var(--agent);
+  transition: border-color 0.12s;
+}
+
+.agentask:focus-within {
+  border-bottom-color: var(--line-strong);
+}
+
+.agentask__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.agentask__input::placeholder {
+  color: var(--ink-3);
+}
+
+.agentask__input:focus-visible {
+  outline: none;
+}
+
+.agentask__go {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--bg);
+}
+
+/* Recipient chips. */
+.recip {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 0;
+}
+
+.recip__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.recip__input-wrap {
+  flex: 1;
+  min-width: 120px;
+}
+
+.recip__input {
+  width: 100%;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  font-size: 13.5px;
+}
+
+.recip__input:focus-visible {
+  outline: none;
+}
+
+.recip__list {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 70;
+  width: min(360px, 100%);
+  padding: 5px;
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-pop);
+}
+
+.recip__option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: default;
+}
+
+.recip__option.is-active {
+  background: var(--hover);
+}
+
+.recip__option-email {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.recip__option-origin {
+  font-size: 11px;
+  color: var(--ink-4);
+}
+
+.recip__note,
+.recip__error {
+  padding: 4px 0 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.recip__error {
+  color: var(--danger);
+}
+
+/* Dialog fields reuse the chip input inside a bordered box. */
+.field .recip {
+  padding: 4px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+
+.field .recip.is-focused {
+  border-color: var(--ink);
+}
+
+@media (max-width: 760px) {
+  .row__main {
+    grid-template-columns: 7px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 1px 10px;
+    height: auto;
+    padding: 9px 10px;
+  }
+
+  .row__main > .acct-dot {
+    grid-row: 1;
+  }
+
+  .row__from {
+    grid-column: 2;
+  }
+
+  .row__time {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .row__text {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+
+  .row__marks {
+    display: none;
+  }
+
+  .row__actions,
+  .hints {
+    display: none !important;
+  }
+
+  .row.is-cursor .row__time,
+  .row:focus-within .row__time {
+    visibility: visible;
+  }
+
+  .row.is-cursor .row__main,
+  .row:focus-within .row__main {
+    grid-template-columns: 7px minmax(0, 1fr) auto;
+  }
+
+  .thread {
+    padding-top: 16px;
+  }
+
+  .thread__subject {
+    font-size: 19px;
+  }
+
+  .composer--sheet,
+  .app--agent .composer--sheet {
+    inset: 0;
+    width: auto;
+    max-height: none;
+    border-radius: 0;
+  }
+
+  .agentask {
+    order: 5;
+    flex-basis: 100%;
+    max-width: none;
+    margin-left: 0;
+  }
+
+  .composer__foot {
+    flex-wrap: wrap;
+  }
+}

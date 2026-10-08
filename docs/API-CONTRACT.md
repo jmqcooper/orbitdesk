@@ -74,6 +74,8 @@ The client lower-cases `code` before comparing, and treats an unknown code as `i
 | GET | `/api/threads` | `ThreadListQuery` | `ListResult<ThreadSummary>` |
 | GET | `/api/threads/:id` | — | `ThreadDetail` |
 | POST | `/api/threads/:id/actions` | `ThreadActionRequest` | `ThreadSummary` |
+| POST | `/api/threads/:id/triage` | `ThreadTriageRequest` | `ThreadTriageResponse` |
+| POST | `/api/triage/run` | query `accountId` | `TriageRunResult` |
 | GET | `/api/drafts` | query `accountId`, `threadId`, `cursor`, `limit` | `ListResult<Draft>` |
 | POST | `/api/drafts` | `DraftCreateRequest` | `Draft` (201) |
 | PATCH | `/api/drafts/:id` | `DraftUpdateRequest` | `Draft` |
@@ -178,11 +180,16 @@ One call that paints the shell: `Bootstrap` = `session`, `connections`, `calenda
 
 Body is any subset of `Settings` plus optional `calendars: CalendarPreference[]` to change a calendar's `visible` / `includeInAvailability`. Returns the full `settings` and the full `calendars` array.
 
+`voice` and `about` are what the agent writes from: a voice guide or persona prompt, and who the user is. `autoTriage` and `autoDraft` switch the background agent. `onboardedAt` is read-only; sending `onboarded: true` stamps it once and queues the first triage. A session whose `settings.onboardedAt` is `null` is shown the setup wizard instead of the app.
+
 ## 5. Mail
 
 ### `GET /api/threads`
 
-Query `ThreadListQuery`: `accountId`, `q`, `folder` (`inbox` default, `unread`, `starred`, `sent`, `all`, `trash`), `labelId`, `cursor`, `limit` (default 40, max 100).
+Query `ThreadListQuery`: `accountId`, `q`, `folder` (`inbox` default, `unread`, `starred`, `sent`, `all`, `trash`), `labelId`, `lane`, `cursor`, `limit` (default 40, max 100).
+
+- `lane` narrows to one triage lane: `reply`, `fyi` or `other` among inbox conversations, `waiting` across every folder (mail the owner sent that still expects an answer), or `unsorted` for inbox conversations with no verdict yet. `reply` lists urgent conversations first.
+- Every `ThreadSummary` carries `triage: ThreadTriage | null` and `hasDraft`. `Counts.lanes` in the bootstrap has the size of each lane, and `Counts.agentQueue` how much sorting and drafting the agent still has ahead of it.
 
 - `unread` means unread threads in the inbox. `all` excludes trash.
 - `labelId` filters to one label. A `MailLabel.id` is only unique within its account, so the client always sends the label's `accountId` with it (and `folder=all`).
@@ -209,6 +216,20 @@ Body `ThreadActionRequest`. Returns the updated `ThreadSummary`.
 | `label` | `addLabelIds` and/or `removeLabelIds`, which must belong to the thread's account. |
 
 These are direct user actions and need no approval step.
+
+### Triage
+
+Triage is the agent's verdict on a conversation: its lane, a one-line `summary`, whether it is `urgent` or about a `meeting`, an optional suggested `task`, and the state of the reply `draft`. It is stored by the app next to the thread and is never written to Gmail. A verdict belongs to the conversation's latest message; when new mail arrives the conversation is `unsorted` again until the next pass. A conversation the owner wrote last is shown as `waiting` even before a model has looked at it.
+
+The worker runs a pass after every account sync. Sorting uses the fast model in batches; drafting uses the agent model and saves a real draft through the same path as `POST /api/drafts`, with recipients taken from the message headers. Unprompted drafts are limited to conversations whose latest message is under a week old. Only accounts with `assistantAccess` are read. The model's lane is a proposal: a conversation whose last message was sent by the owner can only be `waiting` or `other`.
+
+`POST /api/threads/:id/triage` takes `ThreadTriageRequest`:
+
+- `lane` moves the conversation (`manual: true`); the agent leaves it there until new mail arrives.
+- `taskDone` settles the suggested task after it was added or dismissed.
+- `redraft: true` runs the drafting agent now, optionally steered by `instruction`, and replaces the thread's working draft. It counts as an assistant run and returns the new `Draft`. It never sends.
+
+`POST /api/triage/run` performs one bounded pass immediately, for deployments without a worker and for the sandbox. `TriageRunResult.error` says why a pass stopped early.
 
 ### Drafts
 

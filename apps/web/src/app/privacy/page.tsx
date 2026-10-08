@@ -120,16 +120,39 @@ const sections: LegalSection[] = [
   },
   {
     id: 'assistant',
-    title: 'The assistant and model providers',
+    title: 'The agent and model providers',
     body: (
       <>
         <p>
-          When you ask the assistant something, Orbitdesk sends the parts of your mail, events and tasks needed to answer
-          that request to the model provider configured for the deployment. It sends only content from the accounts you
-          selected for that question.
+          Orbitdesk uses language models to sort your mail, draft replies and answer your questions. Model requests go
+          to OpenRouter, which forwards each one to the provider of the model in use. Only accounts where you leave
+          agent access switched on are ever included.
         </p>
         <ul>
-          <li>This hosted beta uses Vertex AI on a billed project, whose service does not train general-purpose models on your content. Self-hosted operators must choose an appropriate provider agreement.</li>
+          <li>
+            <strong>Sorting, in the background.</strong> After new mail is synced, the sender, subject and the first
+            part of the latest message of each new conversation are sent to a model so the conversation can be placed
+            in a lane and summarised in one line.
+          </li>
+          <li>
+            <strong>Drafting, in the background.</strong> For conversations that need an answer, the recent messages
+            of that conversation are sent to a model to prepare a draft. A background draft can check when you are free
+            or busy; it cannot read other mail or the details of your events. The draft is saved to Gmail and is never
+            sent by Orbitdesk on its own.
+          </li>
+          <li>
+            <strong>When you ask.</strong> The parts of your mail, events, tasks and files needed to answer are sent
+            for that request.
+          </li>
+          <li>
+            Both background jobs can be turned off under Settings, and agent access can be turned off for any single
+            account. With no model key configured, nothing is sent to a model at all.
+          </li>
+          <li>
+            The data terms of OpenRouter and of the provider it routes to apply to these requests. A deployment can
+            restrict routing to providers that do not retain or train on prompts; self-hosted operators are
+            responsible for choosing that setting and an appropriate provider agreement.
+          </li>
           <li>
             Email, attachments and documents are treated as data. Text inside them cannot grant permissions, widen the
             set of accounts, or instruct the assistant to send information elsewhere.
@@ -139,7 +162,6 @@ const sections: LegalSection[] = [
             exact content and wait for approval.
           </li>
         </ul>
-        <p>If no model provider is configured, the assistant is unavailable and no content is sent to one.</p>
       </>
     ),
   },
@@ -166,7 +188,8 @@ const sections: LegalSection[] = [
           <strong>Google</strong>, to carry out the reads and the actions you approve.
         </li>
         <li>
-          <strong>The model provider</strong> configured for the deployment, for assistant requests only.
+          <strong>OpenRouter and the model provider it routes to</strong>, for the agent’s sorting, drafting and
+          answers only.
         </li>
         <li>
           <strong>The hosting provider</strong> that runs the application and its database.
@@ -191,8 +214,8 @@ const sections: LegalSection[] = [
     body: (
       <p>
         The demo creates an isolated workspace of simulated accounts and messages. It does not connect to Google, does
-        not deliver email, and is not shared with other visitors. Anything typed into the demo assistant is sent to the
-        configured model provider like any other assistant request.
+        not deliver email, and is not shared with other visitors. It opens with sample sorting and sample drafts that were not produced by a
+        model. Anything you ask the agent to do in the demo is sent to the model provider like any other request.
       </p>
     ),
   },
@@ -202,15 +225,15 @@ const sections: LegalSection[] = [
     body: (
       <ul>
         <li>
-          <strong>Limit the assistant.</strong> Choose per account whether the assistant may read it, and per question
-          which accounts it uses.
+          <strong>Limit the agent.</strong> Choose per account whether the agent may read it, narrow a question to
+          some accounts with the account filter, and switch background sorting or drafting off in Settings.
         </li>
         <li>
           <strong>Disconnect an account.</strong> This revokes Orbitdesk’s access where Google allows, cancels pending
           actions for it, and removes its cached data.
         </li>
         <li>
-          <strong>Delete everything.</strong> Connections &amp; settings → Data &amp; privacy deletes your workspace and
+          <strong>Delete everything.</strong> Settings → Data deletes your workspace and
           all Orbitdesk data. Your Gmail, Calendar and Tasks data in Google is not affected. Backups expire on the
           operator’s documented schedule.
         </li>
@@ -241,7 +264,7 @@ export default function PrivacyPage() {
     <LegalPage
       kicker="Privacy"
       title="Privacy policy"
-      updated="October 4, 2026"
+      updated="October 8, 2026"
       sections={sections}
       intro={
         <p>

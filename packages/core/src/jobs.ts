@@ -7,12 +7,15 @@ import { runAgent, briefPrompt } from './agent';
 import { connections, type Context } from './store';
 import { automationView, connectionView } from './views';
 import { retainCache } from './retention';
+import { runTriage } from './triage';
 
 let boss:PgBoss|undefined,starting:Promise<PgBoss>|undefined;
-export async function queue() {if(boss)return boss;if(starting)return starting;starting=(async()=>{const q=new PgBoss({connectionString:process.env.DATABASE_URL!,schema:'pgboss'});q.on('error',()=>console.error('Queue operation failed; durable actions remain in Postgres.'));await q.start();await q.createQueue('sync-account',{retryLimit:2,retryDelay:30});await q.createQueue('execute-action',{retryLimit:0});boss=q;return q;})();try{return await starting;}finally{starting=undefined;}}
+export async function queue() {if(boss)return boss;if(starting)return starting;starting=(async()=>{const q=new PgBoss({connectionString:process.env.DATABASE_URL!,schema:'pgboss'});q.on('error',()=>console.error('Queue operation failed; durable actions remain in Postgres.'));await q.start();await q.createQueue('sync-account',{retryLimit:2,retryDelay:30});await q.createQueue('execute-action',{retryLimit:0});await q.createQueue('triage-workspace',{retryLimit:1,retryDelay:20});boss=q;return q;})();try{return await starting;}finally{starting=undefined;}}
 // A quota-paced initial mailbox import can exceed pg-boss's 15-minute default.
 export async function enqueueSync(connectionId:string) {try{return await (await queue()).send('sync-account',{connectionId},{singletonKey:connectionId,expireInSeconds:3600});}catch{/* Worker scans accounts as a durable fallback. */return null;}}
 export async function enqueueAction(actionId:string,startAfter?:Date) {try{return await (await queue()).send('execute-action',{actionId},{singletonKey:actionId,startAfter});}catch{/* The approved Action row is the durable outbox. */return null;}}
+/** One triage pass per workspace at a time; the next sync or a leftover backlog queues another. */
+export async function enqueueTriage(workspaceId:string,startAfter?:number) {try{return await (await queue()).send('triage-workspace',{workspaceId},{singletonKey:workspaceId,startAfter,expireInSeconds:900});}catch{/* The next account sync queues triage again. */return null;}}
 export async function stopQueue(){if(boss){await boss.stop({graceful:true});boss=undefined;}}
 export function nextRun(schedule:{time:string;days:number[];timezone:string},after=new Date()) {
   const base=formatInTimeZone(after,schedule.timezone,'yyyy-MM-dd');for(let i=0;i<9;i++){const date=new Date(base+'T12:00:00Z');date.setUTCDate(date.getUTCDate()+i);const day=date.getUTCDay();if(!schedule.days.includes(day))continue;const local=date.toISOString().slice(0,10)+'T'+schedule.time+':00';const candidate=fromZonedTime(local,schedule.timezone);if(candidate>after)return candidate;}return new Date(after.getTime()+7*86400000);
@@ -26,7 +29,10 @@ export async function tick() {
   }
 }
 export async function startWorker() {
-  const q=await queue();await q.work('execute-action',{batchSize:1},async jobs=>{for(const j of jobs)await execute((j.data as any).actionId);});await q.work('sync-account',{batchSize:1},async jobs=>{for(const j of jobs){const c=await db.connection.findUnique({where:{id:(j.data as any).connectionId}});if(c&&c.status!=='paused')await syncConnection(c);}});
+  const q=await queue();await q.work('execute-action',{batchSize:1},async jobs=>{for(const j of jobs)await execute((j.data as any).actionId);});await q.work('sync-account',{batchSize:1},async jobs=>{for(const j of jobs){const c=await db.connection.findUnique({where:{id:(j.data as any).connectionId}});if(c&&c.status!=='paused'){await syncConnection(c);await enqueueTriage(c.workspaceId);}}});
+  await q.work('triage-workspace',{batchSize:1},async jobs=>{for(const j of jobs){const w=await db.workspace.findUnique({where:{id:(j.data as any).workspaceId},include:{owner:true}});if(!w||w.demo)continue;const {owner,...workspace}=w;const done=await runTriage({user:owner,workspace});
+    // Keep going while a pass makes progress; a backlog that cannot move waits for the next sync.
+    if(done.remaining&&done.sorted+done.drafted>0)await enqueueTriage(w.id,5);}});
   let stopped=false,lastSync=0,lastCleanup=0;
   const loop=async()=>{if(stopped)return;try{await tick();if(Date.now()-lastSync>Number(process.env.SYNC_INTERVAL_SECONDS||120)*1000){lastSync=Date.now();const cs=await db.connection.findMany({where:{credentials:{not:null},status:{not:'paused'}}});for(const c of cs)await enqueueSync(c.id);}if(Date.now()-lastCleanup>3600000){lastCleanup=Date.now();await retainCache();await db.oAuthState.deleteMany({where:{expiresAt:{lt:new Date()}}});await db.session.deleteMany({where:{expiresAt:{lt:new Date()}}});const old=await db.user.findMany({where:{googleSub:null,createdAt:{lt:new Date(Date.now()-86400000)},workspaces:{every:{demo:true}}},select:{id:true}});await db.user.deleteMany({where:{id:{in:old.map(u=>u.id)}}});}}catch{console.error('Worker tick failed; it will retry on the next tick.');}if(!stopped)setTimeout(loop,1000);};void loop();
   return async()=>{stopped=true;await q.stop({graceful:true});await db.$disconnect();};

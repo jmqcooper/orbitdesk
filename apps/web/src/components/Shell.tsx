@@ -3,33 +3,30 @@
 import clsx from 'clsx';
 import {
   CalendarDays,
+  Check,
+  ChevronDown,
   CircleCheck,
   CircleX,
-  FlaskConical,
   FolderOpen,
-  Inbox,
   Info,
+  Keyboard,
   ListChecks,
   LogOut,
-  Menu as MenuIcon,
-  MoreHorizontal,
-  Plus,
-  Repeat,
-  Search,
+  Mail,
+  Moon,
   Settings2,
-  ShieldCheck,
   Sparkles,
-  SquarePen,
-  Sun,
   TriangleAlert,
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { needsAttention } from '@/lib/accounts';
 import { api, googleAuthUrl, toApiError } from '@/lib/api';
-import { firstName, initials } from '@/lib/format';
-import { routePath, useHashRoute, useResource } from '@/lib/hooks';
+import { initials } from '@/lib/format';
+import { isTyping, routePath, useHashRoute, useResource, useShortcuts } from '@/lib/hooks';
 import type { AuthConfig, Bootstrap, Id } from '@/lib/types';
+import { AgentPanel } from './agent/AgentPanel';
 import {
   AccountDot,
   AppProvider,
@@ -37,21 +34,19 @@ import {
   type AppContextValue,
   type AssistantSeed,
   type ComposeRequest,
+  type SettingsSection,
   type ToastInput,
 } from './AppContext';
+import { BootFailure, BootScreen, type AuthNotice } from './Boot';
 import { CommandPalette } from './CommandPalette';
 import { Composer, type ComposerHandle } from './mail/Composer';
-import { BootFailure, BootScreen, type AuthNotice } from './Boot';
-import { EmptyState, Kbd, Menu, OrbitMark } from './ui';
-import { ApprovalsView } from './views/ApprovalsView';
-import { AssistantView } from './views/AssistantView';
-import { AutomationsView } from './views/AutomationsView';
+import { Onboarding } from './Onboarding';
+import { Settings } from './Settings';
+import { Dialog, EmptyState, Kbd, Menu, OrbitMark, Popover } from './ui';
 import { CalendarView } from './views/CalendarView';
-import { ConnectionsView } from './views/ConnectionsView';
 import { FilesView } from './views/FilesView';
-import { InboxView } from './views/InboxView';
+import { MailView } from './views/MailView';
 import { TasksView } from './views/TasksView';
-import { TodayView } from './views/TodayView';
 
 interface ShellProps {
   auth: AuthConfig;
@@ -72,17 +67,30 @@ export function Shell({ auth, flash, onFlashShown, onSignedOut }: ShellProps) {
     }
   }, [onSignedOut]);
 
-  if (boot.loading) return <BootScreen label="Loading your workspace" />;
+  if (boot.loading) return <BootScreen label="Opening your desk" />;
   if (!boot.data) {
     return boot.error ? (
       <BootFailure
         error={boot.error}
-        explanation="Your workspace could not be loaded. Nothing is shown rather than guessing."
+        explanation="Your workspace could not be loaded, so nothing is shown."
         onRetry={boot.reload}
         onSignOut={signOut}
       />
     ) : (
-      <BootScreen label="Loading your workspace" />
+      <BootScreen label="Opening your desk" />
+    );
+  }
+
+  if (!boot.data.settings.onboardedAt) {
+    return (
+      <Onboarding
+        boot={boot.data}
+        notice={flash}
+        onNoticeShown={onFlashShown}
+        onDone={(settings) => boot.mutate((current) => ({ ...current, settings }))}
+        refreshBoot={boot.reload}
+        signOut={signOut}
+      />
     );
   }
 
@@ -100,59 +108,177 @@ export function Shell({ auth, flash, onFlashShown, onSignedOut }: ShellProps) {
   );
 }
 
-interface NavItem {
-  view: string;
-  label: string;
-  icon: LucideIcon;
-  count?: number;
-  countTone?: 'accent' | 'muted';
+/* ---------------- Theme ---------------- */
+
+function toggleTheme(): void {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try {
+    localStorage.setItem('orbitdesk:theme', next);
+  } catch {
+    // Private mode: the choice simply lasts for this page.
+  }
 }
 
-/** Shown in place of every data view until the workspace has its first connected account. */
-function Welcome() {
-  const { boot } = useApp();
-  const connect = boot.capabilities.googleConnect;
-  const name = firstName({ name: boot.session.user.name, email: boot.session.user.email });
+/* ---------------- Account filter ---------------- */
+
+/** Narrows every view to some accounts. Lives in each view's bar; the choice is shared. */
+export function AccountFilter() {
+  const { boot, scope, setScope, account, openSettings } = useApp();
+  const [open, setOpen] = useState(false);
+  if (boot.connections.length < 2) return null;
+  const shown = scope.length ? scope.map((id) => account(id)).filter((c) => c !== undefined) : boot.connections;
+  const label =
+    scope.length === 0 ? 'All accounts' : scope.length === 1 ? (account(scope[0])?.label ?? '1 account') : `${scope.length} accounts`;
+
   return (
-    <div className="view view--narrow welcome">
-      <p className="kicker">Getting started</p>
-      <h1 className="masthead__title">Welcome, {name}. Connect your first account.</h1>
-      <p className="masthead__lede masthead__lede--plain">
-        Signing in told Orbitdesk who you are — it has not read anything yet. Connect a Google account to bring its
-        mail, calendar and tasks here. You can add the rest of your accounts afterwards, one consent screen each.
-      </p>
-      <ol className="welcome__steps">
-        <li>
-          <span>01</span> Pick the Google account and approve access on Google’s consent screen.
-        </li>
-        <li>
-          <span>02</span> Orbitdesk syncs its recent mail, calendars and task lists.
-        </li>
-        <li>
-          <span>03</span> Decide whether the assistant may read it. Nothing is sent or changed without your approval.
-        </li>
-      </ol>
-      {connect.available ? (
-        <a className="btn btn--accent welcome__cta" href={googleAuthUrl('connect', { features: ['mail', 'calendar', 'tasks'] })}>
-          <Plus size={16} aria-hidden="true" />
-          <span>Connect a Google account</span>
-        </a>
-      ) : (
-        <div className="notice notice--warn" role="status">
-          <TriangleAlert size={15} aria-hidden="true" />
-          <span className="notice__text">
-            <strong>Accounts cannot be connected right now.</strong>{' '}
-            {connect.reason ?? 'The Google OAuth client is not configured on this deployment.'}
+    <Popover
+      open={open}
+      onClose={() => setOpen(false)}
+      align="end"
+      panelClassName="acctlist"
+      trigger={
+        <button
+          type="button"
+          className="acctfilter"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          title="Filter by account"
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span className="acctfilter__dots" aria-hidden="true">
+            {shown.slice(0, 4).map((connection) => (
+              <AccountDot key={connection.id} account={connection} size={8} />
+            ))}
           </span>
-        </div>
-      )}
-      <p className="welcome__more">
-        This first request asks for Gmail, Calendar and Tasks. To choose the areas yourself, or to add Contacts and
-        Drive, use <a href="#/connections">Connections</a>.
-      </p>
-    </div>
+          <span>{label}</span>
+          <ChevronDown size={13} aria-hidden="true" />
+        </button>
+      }
+    >
+      <div role="menu" aria-label="Accounts">
+        <button type="button" role="menuitemradio" aria-checked={scope.length === 0} className="menu__item" onClick={() => setScope([])}>
+          <span className="menu__icon">{scope.length === 0 && <Check size={14} />}</span>
+          <span className="menu__label">All accounts</span>
+          <span className="menu__hint">{boot.connections.length}</span>
+        </button>
+        <div className="menu__divider" role="separator" />
+        {boot.connections.map((connection) => {
+          const on = scope.includes(connection.id);
+          const unread = boot.counts.unreadByAccount[connection.id] ?? 0;
+          return (
+            <button
+              key={connection.id}
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={on}
+              className={clsx('menu__item', scope.length > 0 && !on && 'is-off')}
+              title={connection.email}
+              // Click picks one account; shift- or ⌘-click builds a set.
+              onClick={(event) => {
+                if (event.shiftKey || event.metaKey || event.ctrlKey) {
+                  setScope(on ? scope.filter((id) => id !== connection.id) : [...scope, connection.id]);
+                } else {
+                  setScope(on && scope.length === 1 ? [] : [connection.id]);
+                  setOpen(false);
+                }
+              }}
+            >
+              <span className="menu__icon">
+                <AccountDot account={connection} size={8} />
+              </span>
+              <span className="acctlist__text">
+                <span className="acctlist__label">{connection.label}</span>
+                <span className="acctlist__email">{connection.email}</span>
+              </span>
+              {needsAttention(connection) ? (
+                <TriangleAlert size={13} className="acct-badge__warn" aria-label="Needs attention" />
+              ) : unread ? (
+                <span className="menu__hint num">{unread}</span>
+              ) : null}
+            </button>
+          );
+        })}
+        <div className="menu__divider" role="separator" />
+        <button
+          type="button"
+          role="menuitem"
+          className="menu__item"
+          onClick={() => {
+            setOpen(false);
+            openSettings('accounts');
+          }}
+        >
+          <span className="menu__icon">
+            <Settings2 size={14} />
+          </span>
+          <span className="menu__label">Manage accounts</span>
+        </button>
+      </div>
+    </Popover>
   );
 }
+
+/* ---------------- Shortcuts ---------------- */
+
+const SHORTCUTS: Array<{ head: string; rows: Array<[string, string[]]> }> = [
+  {
+    head: 'Anywhere',
+    rows: [
+      ['Command menu', ['⌘', 'K']],
+      ['Agent', ['⌘', 'J']],
+      ['Compose', ['C']],
+      ['Mail, calendar, tasks, files', ['G', 'M/C/T/F']],
+    ],
+  },
+  {
+    head: 'Mail list',
+    rows: [
+      ['Move', ['J', 'K']],
+      ['Open', ['↵']],
+      ['Next lane', ['Tab']],
+      ['Search', ['/']],
+      ['Archive', ['E']],
+      ['Trash', ['#']],
+    ],
+  },
+  {
+    head: 'Conversation',
+    rows: [
+      ['Send', ['⌘', '↵']],
+      ['Reply, reply all, forward', ['R', 'A', 'F']],
+      ['Have the agent draft', ['D']],
+      ['Star, mark unread', ['S', 'U']],
+      ['Back', ['Esc']],
+    ],
+  },
+];
+
+function ShortcutsDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <Dialog title="Keyboard shortcuts" size="lg" onClose={onClose}>
+      <div className="keys">
+        {SHORTCUTS.map((group) => (
+          <div key={group.head} style={{ display: 'contents' }}>
+            <p className="keys__head">{group.head}</p>
+            {group.rows.map(([label, keys]) => (
+              <div key={label} className="keys__row">
+                <span>{label}</span>
+                <span className="keys__keys">
+                  {keys.map((key) => (
+                    <Kbd key={key}>{key}</Kbd>
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </Dialog>
+  );
+}
+
+/* ---------------- Workspace ---------------- */
 
 interface ToastItem extends ToastInput {
   id: number;
@@ -169,17 +295,27 @@ interface WorkspaceProps {
   signOut: () => void;
 }
 
+const VIEWS: Array<{ view: string; label: string; icon: LucideIcon; key: string }> = [
+  { view: 'mail', label: 'Mail', icon: Mail, key: 'm' },
+  { view: 'calendar', label: 'Calendar', icon: CalendarDays, key: 'c' },
+  { view: 'tasks', label: 'Tasks', icon: ListChecks, key: 't' },
+  { view: 'files', label: 'Files', icon: FolderOpen, key: 'f' },
+];
+
 function Workspace({ boot, bootStale, auth, refreshBoot, patchBoot, flash, onFlashShown, signOut }: WorkspaceProps) {
   const { route, navigate } = useHashRoute();
   const [scopeRaw, setScopeRaw] = useState<Id[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [composer, setComposer] = useState<(ComposeRequest & { key: number }) | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [railOpen, setRailOpen] = useState(false);
+  const [settings, setSettings] = useState<SettingsSection | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
   const [assistantSeed, setAssistantSeed] = useState<AssistantSeed | null>(null);
   const composerRef = useRef<ComposerHandle>(null);
   const toastId = useRef(0);
   const composerKey = useRef(0);
+  const chord = useRef(0);
 
   const byId = useMemo(() => new Map(boot.connections.map((c) => [c.id, c])), [boot.connections]);
   // A removed connection silently drops out of the filter.
@@ -194,16 +330,15 @@ function Workspace({ boot, bootStale, auth, refreshBoot, patchBoot, flash, onFla
     (input: ToastInput) => {
       toastId.current += 1;
       const id = toastId.current;
-      setToasts((list) => [...list.slice(-3), { ...input, id }]);
-      window.setTimeout(() => dismissToast(id), input.durationMs ?? (input.tone === 'error' ? 9000 : 5200));
+      setToasts((list) => [...list.slice(-2), { ...input, id }]);
+      window.setTimeout(() => dismissToast(id), input.durationMs ?? (input.tone === 'error' ? 9000 : 4800));
     },
     [dismissToast],
   );
 
   const reportError = useCallback(
     (error: unknown, what: string) => {
-      const apiError = toApiError(error);
-      toast({ tone: 'error', message: `${what}: ${apiError.message}` });
+      toast({ tone: 'error', message: `${what}: ${toApiError(error).message}` });
     },
     [toast],
   );
@@ -224,42 +359,88 @@ function Workspace({ boot, bootStale, auth, refreshBoot, patchBoot, flash, onFla
     [toast],
   );
 
+  const ask = useCallback((seed?: AssistantSeed) => {
+    if (seed) setAssistantSeed(seed);
+    setAgentOpen(true);
+  }, []);
+
   const openPalette = useCallback(() => setPaletteOpen(true), []);
+  const openSettings = useCallback((section?: SettingsSection) => setSettings(section ?? 'accounts'), []);
 
   useEffect(() => {
-    if (!route.view) navigate('#/today', true);
+    if (!route.view) navigate('#/mail', true);
   }, [route.view, navigate]);
-
-  useEffect(() => {
-    setRailOpen(false);
-  }, [route]);
 
   useEffect(() => {
     if (!flash) return;
     toast({ tone: flash.tone === 'danger' ? 'error' : flash.tone === 'ok' ? 'ok' : 'info', message: flash.message, durationMs: 9000 });
-    if (flash.tone !== 'info') navigate('#/connections');
+    if (flash.tone !== 'info') setSettings('accounts');
     if (flash.tone === 'ok') refreshBoot();
     onFlashShown();
-  }, [flash, toast, navigate, refreshBoot, onFlashShown]);
+  }, [flash, toast, refreshBoot, onFlashShown]);
 
+  // While the agent still has mail to sort, pick its work up quickly.
+  const sorting = boot.capabilities.triage.available && boot.counts.agentQueue.sort + boot.counts.agentQueue.draft > 0;
+  useEffect(() => {
+    if (!sorting) return;
+    const timer = setInterval(refreshBoot, 8000);
+    return () => clearInterval(timer);
+  }, [sorting, refreshBoot]);
+
+  // Modifier shortcuts work even while typing.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      const target = event.target;
-      const typing =
-        target instanceof HTMLElement &&
-        (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      const key = event.key.toLowerCase();
+      if (key === 'k') {
         event.preventDefault();
         setPaletteOpen((open) => !open);
-      } else if (event.key === '/' && !typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
-        if (document.querySelector('dialog[open]')) return;
+      } else if (key === 'j') {
         event.preventDefault();
-        setPaletteOpen(true);
+        setAgentOpen((open) => !open);
+      } else if (key === ',') {
+        event.preventDefault();
+        setSettings((current) => (current ? null : 'accounts'));
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // "G then M/C/T/F" is caught in the capture phase so the second key never reaches a view's own shortcuts.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target) || document.querySelector('dialog[open]')) return;
+      const key = event.key.toLowerCase();
+      if (Date.now() - chord.current < 1200) {
+        chord.current = 0;
+        const target = VIEWS.find((item) => item.key === key);
+        if (target) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          navigate(routePath(target.view));
+        }
+      } else if (key === 'g') {
+        chord.current = Date.now();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [navigate]);
+
+  useShortcuts((event) => {
+    const key = event.key.toLowerCase();
+    if (key === 'c') {
+      event.preventDefault();
+      void compose({ mode: 'new' });
+    } else if (event.key === '?') {
+      event.preventDefault();
+      setShortcutsOpen(true);
+    } else if (event.key === '/' && route.view !== 'mail') {
+      event.preventDefault();
+      setPaletteOpen(true);
+    }
+  });
 
   const value = useMemo<AppContextValue>(
     () => ({
@@ -277,308 +458,176 @@ function Workspace({ boot, bootStale, auth, refreshBoot, patchBoot, flash, onFla
       toast,
       reportError,
       compose: (request) => void compose(request),
+      ask,
       assistantSeed,
       setAssistantSeed,
+      agentOpen,
+      setAgentOpen,
       openPalette,
+      openSettings,
       signOut,
     }),
-    [boot, auth, refreshBoot, patchBoot, byId, scope, scopeKey, route, navigate, toast, reportError, compose, assistantSeed, openPalette, signOut],
+    [boot, auth, refreshBoot, patchBoot, byId, scope, scopeKey, route, navigate, toast, reportError, compose, ask, assistantSeed, agentOpen, openPalette, openSettings, signOut],
   );
 
   const demo = boot.session.mode === 'demo';
   const counts = boot.counts;
-  const nav: NavItem[] = [
-    { view: 'today', label: 'Today', icon: Sun },
-    { view: 'inbox', label: 'Inbox', icon: Inbox, count: counts.inboxUnread },
-    { view: 'calendar', label: 'Calendar', icon: CalendarDays, count: counts.eventsToday, countTone: 'muted' },
-    { view: 'tasks', label: 'Tasks', icon: ListChecks, count: counts.tasksDue, countTone: 'muted' },
-    { view: 'assistant', label: 'Assistant', icon: Sparkles },
-    { view: 'files', label: 'Files', icon: FolderOpen },
-    { view: 'approvals', label: 'Approvals', icon: ShieldCheck, count: counts.pendingActions, countTone: 'accent' },
-    { view: 'automations', label: 'Automations', icon: Repeat },
-  ];
-  const activeView = route.view === 'settings' ? 'connections' : route.view;
-
-  const toggleAccount = (id: Id) => {
-    if (scope.includes(id)) setScopeRaw(scope.filter((item) => item !== id));
-    else setScopeRaw([...scope, id]);
-  };
-
-  const attention = boot.connections.filter((c) => c.status === 'reconnect_required' || c.status === 'error');
   const user = boot.session.user;
+  const attention = boot.connections.filter(needsAttention).length;
+  const badges: Record<string, number> = { mail: counts.lanes.reply, tasks: counts.tasksDue };
 
-  // Sign-in only identifies the user; nothing is readable until an account is connected.
-  const needsFirstAccount = boot.connections.length === 0 && route.view !== 'connections' && route.view !== 'settings';
-
-  let view: React.ReactNode;
-  switch (needsFirstAccount ? 'welcome' : route.view) {
-    case 'welcome':
-      view = <Welcome />;
-      break;
-    case '':
-    case 'today':
-      view = <TodayView />;
-      break;
-    case 'inbox':
-      view = <InboxView folder={route.args[0]} threadId={route.args[1]} />;
-      break;
-    case 'calendar':
-      view = <CalendarView />;
-      break;
-    case 'tasks':
-      view = <TasksView listId={route.args[0]} />;
-      break;
-    case 'assistant':
-      view = <AssistantView conversationId={route.args[0]} />;
-      break;
-    case 'files':
-      view = <FilesView />;
-      break;
-    case 'approvals':
-      view = <ApprovalsView tab={route.args[0]} />;
-      break;
-    case 'automations':
-      view = <AutomationsView />;
-      break;
-    case 'connections':
-    case 'settings':
-      view = <ConnectionsView tab={route.view === 'settings' ? (route.args[0] ?? 'preferences') : route.args[0]} />;
-      break;
-    default:
-      view = (
-        <div className="view view--narrow">
-          <EmptyState title="There’s nothing at this address">
-            The link may be out of date. Use the navigation, or press <Kbd>⌘K</Kbd> to jump somewhere.
-          </EmptyState>
-        </div>
-      );
+  let view: ReactNode;
+  if (boot.connections.length === 0) {
+    const connect = boot.capabilities.googleConnect;
+    view = (
+      <div className="scroll">
+        <EmptyState
+          icon={<Mail size={24} />}
+          title="Connect a Google account"
+          action={
+            connect.available ? (
+              <a className="btn btn--primary" href={googleAuthUrl('connect', { features: ['mail', 'calendar', 'tasks'] })}>
+                <span>Connect Google</span>
+              </a>
+            ) : undefined
+          }
+        >
+          {connect.available
+            ? 'Nothing is read until you connect an account. You can add the rest afterwards.'
+            : (connect.reason ?? 'Google sign-in is not configured on this deployment.')}
+        </EmptyState>
+      </div>
+    );
+  } else {
+    switch (route.view) {
+      case '':
+      case 'mail':
+        view = <MailView view={route.args[0]} threadId={route.args[1]} />;
+        break;
+      case 'calendar':
+        view = <CalendarView />;
+        break;
+      case 'tasks':
+        view = <TasksView listId={route.args[0]} />;
+        break;
+      case 'files':
+        view = <FilesView />;
+        break;
+      default:
+        view = (
+          <div className="scroll">
+            <EmptyState title="Nothing here">
+              Press <Kbd>⌘K</Kbd> to jump somewhere.
+            </EmptyState>
+          </div>
+        );
+    }
   }
 
   return (
     <AppProvider value={value}>
-      <div className={clsx('shell', railOpen && 'shell--rail-open', demo && 'shell--demo')}>
+      <div className={clsx('app', agentOpen && 'app--agent')}>
         <a className="skip-link" href="#main">
           Skip to content
         </a>
 
-        <aside className="rail" aria-label="Workspace">
-          <div className="rail__head">
-            <a className="wordmark wordmark--rail" href="#/today">
-              <OrbitMark size={24} />
-              <span>Orbitdesk</span>
-            </a>
-            <button type="button" className="icon-btn rail__close" aria-label="Close navigation" onClick={() => setRailOpen(false)}>
-              <X size={18} />
-            </button>
-          </div>
-
-          <div className={clsx('mode', demo ? 'mode--demo' : 'mode--real')}>
-            {demo ? <FlaskConical size={13} aria-hidden="true" /> : <span className="mode__dot" aria-hidden="true" />}
-            <span>{demo ? 'Sandbox demo · simulated data' : 'Live · your Google accounts'}</span>
-          </div>
-
-          <nav className="rail__nav" aria-label="Views">
-            {nav.map((item) => {
-              const Icon = item.icon;
-              const active = activeView === item.view || (item.view === 'today' && activeView === '');
-              return (
-                <a
-                  key={item.view}
-                  href={routePath(item.view)}
-                  className={clsx('rail__link', active && 'is-active')}
-                  aria-current={active ? 'page' : undefined}
-                >
-                  <Icon size={17} aria-hidden="true" />
-                  <span className="rail__link-label">{item.label}</span>
-                  {item.count ? (
-                    <span className={clsx('rail__count', item.countTone && `rail__count--${item.countTone}`)}>
-                      {item.count > 999 ? '999+' : item.count}
-                    </span>
-                  ) : null}
-                </a>
-              );
-            })}
-          </nav>
-
-          <div className="rail__section">
-            <div className="rail__section-head">
-              <span>Accounts</span>
-              {scope.length > 0 && (
-                <button type="button" className="rail__reset" onClick={() => setScopeRaw([])}>
-                  Show all
-                </button>
-              )}
-            </div>
-            {boot.connections.length === 0 ? (
-              <p className="rail__empty">No Google accounts are connected yet.</p>
-            ) : (
-              <ul className="rail__accounts" aria-label="Filter by account">
-                {boot.connections.map((connection) => {
-                  const selected = scope.length === 0 || scope.includes(connection.id);
-                  const pressed = scope.includes(connection.id);
-                  const unread = counts.unreadByAccount[connection.id] ?? 0;
-                  const bad = connection.status === 'reconnect_required' || connection.status === 'error';
-                  return (
-                    <li key={connection.id}>
-                      <button
-                        type="button"
-                        className={clsx('rail__account', !selected && 'is-dim', pressed && 'is-pressed')}
-                        aria-pressed={pressed}
-                        title={`${connection.email}${bad && connection.statusDetail ? ` — ${connection.statusDetail}` : ''}`}
-                        onClick={() => toggleAccount(connection.id)}
-                      >
-                        <AccountDot account={connection} size={9} />
-                        <span className="rail__account-text">
-                          <span className="rail__account-label">{connection.label}</span>
-                          <span className="rail__account-email">{connection.email}</span>
-                        </span>
-                        {bad ? (
-                          <TriangleAlert size={14} className="rail__account-warn" aria-label="Needs attention" />
-                        ) : unread ? (
-                          <span className="rail__count rail__count--muted">{unread}</span>
-                        ) : null}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            <a className="rail__add" href="#/connections">
-              <Plus size={15} aria-hidden="true" />
-              <span>Add or manage accounts</span>
-            </a>
-          </div>
-
-          <div className="rail__foot">
-            <a
-              href="#/connections"
-              className={clsx('rail__link', activeView === 'connections' && 'is-active')}
-              aria-current={activeView === 'connections' ? 'page' : undefined}
-            >
-              <Settings2 size={17} aria-hidden="true" />
-              <span className="rail__link-label">Connections &amp; settings</span>
-              {attention.length > 0 && <span className="rail__count rail__count--warn">{attention.length}</span>}
-            </a>
-            <div className="rail__user">
-              <span className="avatar avatar--rail" aria-hidden="true">
-                {initials(user.name || user.email)}
-              </span>
-              <span className="rail__user-text">
-                <span className="rail__user-name">{user.name || user.email}</span>
-                <span className="rail__user-email">{demo ? 'Demo session' : user.email}</span>
-              </span>
-              <Menu
-                label="Account menu"
-                side="top"
-                align="end"
-                buttonClassName="icon-btn icon-btn--rail"
-                button={<MoreHorizontal size={17} />}
-                items={[
-                  { label: 'Preferences', icon: <Settings2 size={15} />, onSelect: () => navigate('#/settings') },
-                  { label: 'Privacy policy', icon: <Info size={15} />, onSelect: () => window.open('/privacy', '_blank', 'noopener') },
-                  { label: 'Terms', icon: <Info size={15} />, onSelect: () => window.open('/terms', '_blank', 'noopener') },
-                  'divider',
-                  { label: demo ? 'Leave the sandbox' : 'Sign out', icon: <LogOut size={15} />, onSelect: signOut },
-                ]}
-              />
-            </div>
-          </div>
-        </aside>
-        <div className="rail-scrim" onClick={() => setRailOpen(false)} aria-hidden="true" />
-
-        <div className="work">
+        <nav className="rail" aria-label="Orbitdesk">
+          <a className="rail__mark" href="#/mail" aria-label="Orbitdesk">
+            <OrbitMark size={24} />
+          </a>
           {demo && (
-            <div className="demo-strip" role="note">
-              <FlaskConical size={14} aria-hidden="true" />
-              <span>
-                <strong>Sandbox demo.</strong> Accounts, mail and calendars here are simulated. Nothing reaches Google
-                or a real recipient.
-              </span>
-              {/* A sandbox session cannot start Google sign-in; leaving it returns to the sign-in page. */}
-              <button type="button" className="link-btn demo-strip__link" onClick={signOut}>
-                {auth.google.available ? 'Leave and sign in with Google' : 'Leave the sandbox'}
-              </button>
-            </div>
+            <span className="rail__demo" title="Sandbox: accounts and mail are simulated. Nothing reaches Google or a real recipient.">
+              demo
+            </span>
           )}
-
-          <header className="topbar">
-            <button type="button" className="icon-btn topbar__menu" aria-label="Open navigation" onClick={() => setRailOpen(true)}>
-              <MenuIcon size={19} />
-            </button>
-            <button type="button" className="searchbar" onClick={openPalette} aria-label="Search or run a command">
-              <Search size={16} aria-hidden="true" />
-              <span className="searchbar__text">Search mail, tasks and files, or jump to…</span>
-              <Kbd>⌘K</Kbd>
-            </button>
-            <div className="topbar__scope" title="Set with the account list in the sidebar">
-              {scope.length === 0
-                ? boot.connections.length === 1
-                  ? '1 account'
-                  : `All ${boot.connections.length} accounts`
-                : `${scope.length} of ${boot.connections.length} accounts`}
-            </div>
-            {counts.pendingActions > 0 && (
-              <a className="topbar__approvals" href="#/approvals">
-                <ShieldCheck size={15} aria-hidden="true" />
-                <span>
-                  {counts.pendingActions} to approve
-                </span>
+          {VIEWS.map((item) => {
+            const Icon = item.icon;
+            const active = route.view === item.view || (item.view === 'mail' && route.view === '');
+            const badge = badges[item.view] ?? 0;
+            return (
+              <a
+                key={item.view}
+                href={routePath(item.view)}
+                className={clsx('rail__link', active && 'is-active')}
+                aria-current={active ? 'page' : undefined}
+                aria-label={badge ? `${item.label}, ${badge}` : item.label}
+                title={`${item.label}  ·  G then ${item.key.toUpperCase()}`}
+              >
+                <Icon size={18} aria-hidden="true" />
+                {badge > 0 && <span className="rail__badge">{badge > 99 ? '99+' : badge}</span>}
               </a>
-            )}
-            <button type="button" className="btn btn--accent topbar__compose" onClick={() => void compose({ mode: 'new' })}>
-              <SquarePen size={15} aria-hidden="true" />
-              <span>Compose</span>
-            </button>
-          </header>
+            );
+          })}
+          <span className="rail__gap" />
+          <button
+            type="button"
+            className={clsx('rail__link rail__link--agent', agentOpen && 'is-active')}
+            aria-pressed={agentOpen}
+            aria-label={counts.pendingActions ? `Agent, ${counts.pendingActions} waiting for you` : 'Agent'}
+            title="Agent  ·  ⌘J"
+            onClick={() => setAgentOpen(!agentOpen)}
+          >
+            <Sparkles size={18} aria-hidden="true" />
+            {counts.pendingActions > 0 && <span className="rail__badge rail__badge--agent">{counts.pendingActions}</span>}
+          </button>
+          <Menu
+            label="Account and settings"
+            side="top"
+            align="start"
+            buttonClassName="rail__link"
+            button={
+              <>
+                <span className="avatar" aria-hidden="true">
+                  {initials(user.name || user.email)}
+                </span>
+                {attention > 0 && <span className="rail__badge rail__badge--warn">{attention}</span>}
+              </>
+            }
+            items={[
+              { label: 'Settings', hint: '⌘,', icon: <Settings2 size={15} />, onSelect: () => setSettings('accounts') },
+              { label: 'Keyboard shortcuts', hint: '?', icon: <Keyboard size={15} />, onSelect: () => setShortcutsOpen(true) },
+              { label: 'Switch theme', icon: <Moon size={15} />, onSelect: toggleTheme },
+              'divider',
+              { label: demo ? 'Leave the sandbox' : 'Sign out', icon: <LogOut size={15} />, onSelect: signOut },
+            ]}
+          />
+        </nav>
 
+        <main id="main" className="main" tabIndex={-1}>
           {bootStale && (
-            <div className="notice notice--warn notice--flush" role="status">
-              <TriangleAlert size={15} aria-hidden="true" />
-              <span className="notice__text">Counts and account status may be out of date. {bootStale}</span>
+            <div className="notice notice--warn" role="status" style={{ borderRadius: 0 }}>
+              <TriangleAlert size={14} aria-hidden="true" />
+              <span className="notice__text">Counts may be out of date. {bootStale}</span>
               <button type="button" className="link-btn" onClick={refreshBoot}>
                 Retry
               </button>
             </div>
           )}
+          {view}
+        </main>
 
-          <main id="main" className="work__main" tabIndex={-1}>
-            {view}
-          </main>
-        </div>
+        {agentOpen && <AgentPanel />}
 
-        <nav className="tabbar" aria-label="Primary">
-          {nav.slice(0, 5).map((item) => {
-            const Icon = item.icon;
-            const active = activeView === item.view;
-            return (
-              <a key={item.view} href={routePath(item.view)} className={clsx('tabbar__item', active && 'is-active')} aria-current={active ? 'page' : undefined}>
-                <Icon size={19} aria-hidden="true" />
-                <span>{item.label}</span>
-                {item.count && item.view === 'inbox' ? <span className="tabbar__dot" aria-label={`${item.count} unread`} /> : null}
-              </a>
-            );
-          })}
-          <button type="button" className="tabbar__item" onClick={() => setRailOpen(true)}>
-            <MenuIcon size={19} aria-hidden="true" />
-            <span>More</span>
-          </button>
-        </nav>
-
-        {composer && (
-          <Composer key={composer.key} ref={composerRef} request={composer} onClose={() => setComposer(null)} />
+        {composer && <Composer key={composer.key} ref={composerRef} request={composer} onClose={() => setComposer(null)} />}
+        {paletteOpen && (
+          <CommandPalette
+            onClose={() => setPaletteOpen(false)}
+            onShortcuts={() => setShortcutsOpen(true)}
+            onToggleTheme={toggleTheme}
+          />
         )}
-
-        {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+        {settings && <Settings section={settings} onSection={setSettings} onClose={() => setSettings(null)} />}
+        {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
 
         <div className="toasts" role="region" aria-label="Notifications" aria-live="polite">
           {toasts.map((item) => (
             <div key={item.id} className={clsx('toast', `toast--${item.tone ?? 'info'}`)}>
               {item.tone === 'error' ? (
-                <CircleX size={16} aria-hidden="true" />
+                <CircleX size={15} aria-hidden="true" />
               ) : item.tone === 'ok' ? (
-                <CircleCheck size={16} aria-hidden="true" />
+                <CircleCheck size={15} aria-hidden="true" />
               ) : (
-                <Info size={16} aria-hidden="true" />
+                <Info size={15} aria-hidden="true" />
               )}
               <span className="toast__msg">{item.message}</span>
               {item.action && (
@@ -594,7 +643,7 @@ function Workspace({ boot, bootStale, auth, refreshBoot, patchBoot, flash, onFla
                 </button>
               )}
               <button type="button" className="toast__close" aria-label="Dismiss" onClick={() => dismissToast(item.id)}>
-                <X size={14} />
+                <X size={13} />
               </button>
             </div>
           ))}
@@ -603,3 +652,4 @@ function Workspace({ boot, bootStale, auth, refreshBoot, patchBoot, flash, onFla
     </AppProvider>
   );
 }
+

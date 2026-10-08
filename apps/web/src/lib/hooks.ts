@@ -220,6 +220,34 @@ export function useDismiss(
   }, [active, ref]);
 }
 
+export function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+  );
+}
+
+/**
+ * Single-key shortcuts on the window. They stay out of the way while the user
+ * is typing, holding a modifier, or looking at a modal dialog.
+ */
+export function useShortcuts(handler: (event: KeyboardEvent) => void, active = true): void {
+  const latest = useRef(handler);
+  useEffect(() => {
+    latest.current = handler;
+  });
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return;
+      if (document.querySelector('dialog[open]')) return;
+      latest.current(event);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [active]);
+}
+
 /* ------------------------------------------------------------------ */
 /* Hash routing                                                        */
 /* ------------------------------------------------------------------ */

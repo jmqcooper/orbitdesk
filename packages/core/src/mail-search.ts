@@ -2,7 +2,8 @@ import type { ThreadDetail } from './types';
 
 /** The common Gmail operators used by the sandbox; live accounts use Gmail itself. */
 export function matchesMailQuery(thread: ThreadDetail, query: string, now = Date.now()): boolean {
-  const text = [thread.subject, thread.snippet, ...thread.messages.map(m => m.bodyText || '')].join(' ').toLowerCase();
+  // A bare word matches people as well as text, as it does in Gmail.
+  const text = [thread.subject, thread.snippet, ...thread.messages.flatMap(m => [m.bodyText || '', m.from.name || '', m.from.email, ...m.to.map(a => `${a.name || ''} ${a.email}`)])].join(' ').toLowerCase();
   const address = (field: 'from' | 'to' | 'cc' | 'bcc', value: string) => thread.messages.some(m => {
     const entries = field === 'from' ? [m.from] : m[field];
     return entries.some(a => (a.email + ' ' + (a.name || '')).toLowerCase().includes(value));

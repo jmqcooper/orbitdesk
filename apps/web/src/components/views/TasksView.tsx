@@ -2,42 +2,30 @@
 
 import clsx from 'clsx';
 import { differenceInCalendarDays } from 'date-fns';
-import { Bell, Check, ChevronDown, ChevronRight, CornerDownRight, Link2, ListChecks, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Check, ChevronDown, CornerDownRight, Link2, ListChecks, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { canAct } from '@/lib/accounts';
 import { api, ApiRequestError, toApiError } from '@/lib/api';
-import { dueLabel, parseDate, plural, safeHref, shortDateTime } from '@/lib/format';
-import { invalidate, routePath, useNow, useResource } from '@/lib/hooks';
+import { dueLabel, parseDate, plural, safeHref } from '@/lib/format';
+import { invalidate, routePath, useNow, useResource, useShortcuts } from '@/lib/hooks';
 import type { Id, Task, TaskList } from '@/lib/types';
 import { AccountBadge, AccountDot, GapNotice, useApp } from '../AppContext';
+import { AccountFilter } from '../Shell';
 import { TaskDialog, type TaskDraft } from '../tasks/TaskDialog';
-import {
-  Button,
-  ConfirmDialog,
-  Dialog,
-  EmptyState,
-  ErrorState,
-  Field,
-  IconButton,
-  Menu,
-  Notice,
-  SkeletonRows,
-  StaleNotice,
-  ViewHeader,
-} from '../ui';
+import { Button, ConfirmDialog, Dialog, EmptyState, ErrorState, Field, IconButton, Menu, Notice, Popover, SkeletonRows } from '../ui';
 
 function byPosition(a: Task, b: Task): number {
   return a.position < b.position ? -1 : a.position > b.position ? 1 : 0;
 }
 
 type Bucket = 'overdue' | 'today' | 'week' | 'later' | 'none';
-const BUCKET_LABEL: Record<Bucket, string> = {
-  overdue: 'Overdue',
-  today: 'Today',
-  week: 'Next 7 days',
-  later: 'Later',
-  none: 'No due date',
-};
+const BUCKETS: Array<{ id: Bucket; label: string }> = [
+  { id: 'overdue', label: 'Overdue' },
+  { id: 'today', label: 'Today' },
+  { id: 'week', label: 'Next 7 days' },
+  { id: 'later', label: 'Later' },
+  { id: 'none', label: 'No date' },
+];
 
 function bucketOf(task: Task, now: Date): Bucket {
   const due = parseDate(task.due);
@@ -58,43 +46,52 @@ export function TasksView({ listId }: { listId?: string }) {
 
   const tasks = useResource(
     showAll ? `tasks:all:${scopeKey}` : selected ? `tasks:list:${selected.id}` : null,
-    (signal) =>
-      showAll
-        ? api.tasks({ accountId: scopeParam, status: 'open', limit: 200 }, { signal })
-        : api.tasks({ taskListId: listId, status: 'all', limit: 200 }, { signal }),
+    (signal) => (showAll ? api.tasks({ accountId: scopeParam, status: 'open', limit: 100 }, { signal }) : api.tasks({ taskListId: listId, status: 'all', limit: 100 }, { signal })),
     { refreshMs: 120_000 },
   );
 
   const [dialog, setDialog] = useState<{ task?: Task; initial?: TaskDraft; key: number } | null>(null);
   const [quick, setQuick] = useState('');
-  const [quickDue, setQuickDue] = useState('');
   const [quickList, setQuickList] = useState<Id>('');
   const [adding, setAdding] = useState(false);
   const [pending, setPending] = useState<Set<Id>>(new Set());
   const [showDone, setShowDone] = useState(false);
+  const [listsOpen, setListsOpen] = useState(false);
   const [listDialog, setListDialog] = useState<{ mode: 'create'; accountId: Id } | { mode: 'rename'; list: TaskList } | null>(null);
   const [deleteList, setDeleteList] = useState<TaskList | null>(null);
   const [deletingList, setDeletingList] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);
-  const [dialogSeq, setDialogSeq] = useState(0);
+  const dialogSeq = useRef(0);
+  const quickRef = useRef<HTMLInputElement>(null);
 
   const openDialog = (value: { task?: Task; initial?: TaskDraft }) => {
-    setDialogSeq((n) => n + 1);
-    setDialog({ ...value, key: dialogSeq + 1 });
+    dialogSeq.current += 1;
+    setDialog({ ...value, key: dialogSeq.current });
   };
 
-  const fallbackList =
-    lists.find((l) => l.id === boot.settings.defaultTaskListId) ?? lists.find((l) => l.isDefault) ?? lists[0];
+  const fallbackList = lists.find((l) => l.id === boot.settings.defaultTaskListId) ?? lists.find((l) => l.isDefault) ?? lists[0];
   const targetListId = selected?.id ?? (lists.some((l) => l.id === quickList) ? quickList : (fallbackList?.id ?? ''));
+
+  useShortcuts((event) => {
+    if (event.key === 'n' || event.key === '/') {
+      event.preventDefault();
+      quickRef.current?.focus();
+    }
+  });
 
   const replaceTask = (task: Task) => {
     tasks.mutate((current) => ({
       ...current,
-      items: current.items.some((item) => item.id === task.id)
-        ? current.items.map((item) => (item.id === task.id ? task : item))
-        : [...current.items, task],
+      items: current.items.some((item) => item.id === task.id) ? current.items.map((item) => (item.id === task.id ? task : item)) : [...current.items, task],
     }));
   };
+
+  const settle = (id: Id) =>
+    setPending((set) => {
+      const next = new Set(set);
+      next.delete(id);
+      return next;
+    });
 
   const toggle = async (task: Task) => {
     const completed = !task.completed;
@@ -102,13 +99,12 @@ export function TasksView({ listId }: { listId?: string }) {
     // Show the tick immediately; the server's version replaces it, or it is rolled back.
     replaceTask({ ...task, completed });
     try {
-      const saved = await api.updateTask(task.id, { completed });
-      replaceTask(saved);
+      replaceTask(await api.updateTask(task.id, { completed }));
       refreshBoot();
       invalidate('brief');
       if (completed) {
         toast({
-          message: `Completed “${task.title}”.`,
+          message: `Done: ${task.title}`,
           action: {
             label: 'Undo',
             run: () => {
@@ -127,11 +123,7 @@ export function TasksView({ listId }: { listId?: string }) {
       replaceTask(task);
       reportError(err, completed ? 'Could not complete the task' : 'Could not reopen the task');
     } finally {
-      setPending((set) => {
-        const next = new Set(set);
-        next.delete(task.id);
-        return next;
-      });
+      settle(task.id);
     }
   };
 
@@ -140,10 +132,8 @@ export function TasksView({ listId }: { listId?: string }) {
     if (!title || !targetListId) return;
     setAdding(true);
     try {
-      const created = await api.createTask({ taskListId: targetListId, title, due: quickDue || null });
-      replaceTask(created);
+      replaceTask(await api.createTask({ taskListId: targetListId, title }));
       setQuick('');
-      setQuickDue('');
       refreshBoot();
       invalidate('brief');
     } catch (err) {
@@ -157,21 +147,13 @@ export function TasksView({ listId }: { listId?: string }) {
     setPending((set) => new Set(set).add(task.id));
     try {
       await api.deleteTask(task.id);
-      tasks.mutate((current) => ({
-        ...current,
-        items: current.items.filter((item) => item.id !== task.id && item.parentId !== task.id),
-      }));
+      tasks.mutate((current) => ({ ...current, items: current.items.filter((item) => item.id !== task.id && item.parentId !== task.id) }));
       refreshBoot();
       invalidate('brief');
-      toast({ message: 'Task deleted.' });
     } catch (err) {
       reportError(err, 'Could not delete the task');
     } finally {
-      setPending((set) => {
-        const next = new Set(set);
-        next.delete(task.id);
-        return next;
-      });
+      settle(task.id);
     }
   };
 
@@ -181,8 +163,8 @@ export function TasksView({ listId }: { listId?: string }) {
     setMoreBusy(true);
     try {
       const page = showAll
-        ? await api.tasks({ accountId: scopeParam, status: 'open', limit: 200, cursor })
-        : await api.tasks({ taskListId: listId, status: 'all', limit: 200, cursor });
+        ? await api.tasks({ accountId: scopeParam, status: 'open', limit: 100, cursor })
+        : await api.tasks({ taskListId: listId, status: 'all', limit: 100, cursor });
       tasks.mutate((current) => ({
         items: [...current.items, ...page.items.filter((item) => !current.items.some((c) => c.id === item.id))],
         nextCursor: page.nextCursor,
@@ -202,7 +184,6 @@ export function TasksView({ listId }: { listId?: string }) {
       await api.deleteTaskList(deleteList.id);
       patchBoot((current) => ({ ...current, taskLists: current.taskLists.filter((l) => l.id !== deleteList.id) }));
       refreshBoot();
-      toast({ message: `Deleted the list “${deleteList.title}”.` });
       if (listId === deleteList.id) navigate('#/tasks');
       setDeleteList(null);
     } catch (err) {
@@ -215,8 +196,8 @@ export function TasksView({ listId }: { listId?: string }) {
   const items = tasks.data?.items ?? [];
   const open = items.filter((task) => !task.completed);
   const done = items.filter((task) => task.completed);
-  const accountIds = Array.from(new Set(lists.map((l) => l.accountId)));
   const taskAccounts = boot.connections.filter((c) => canAct(c, 'tasks') && (!scopeParam || scopeParam.includes(c.id)));
+  const accountIds = Array.from(new Set([...lists.map((l) => l.accountId), ...taskAccounts.map((c) => c.id)]));
   const listTitle = (id: Id) => boot.taskLists.find((l) => l.id === id)?.title ?? 'List';
 
   const renderTask = (task: Task, depth: number) => {
@@ -230,36 +211,29 @@ export function TasksView({ listId }: { listId?: string }) {
           role="checkbox"
           aria-checked={task.completed}
           aria-label={task.completed ? `Reopen ${task.title}` : `Complete ${task.title}`}
-          className="task__check"
+          className="check-btn"
           disabled={busy}
           onClick={() => toggle(task)}
         >
-          {task.completed && <Check size={13} strokeWidth={3} />}
+          {task.completed && <Check size={11} strokeWidth={3.5} />}
         </button>
         <button type="button" className="task__main" onClick={() => openDialog({ task })}>
           <span className="task__title">{task.title || '(untitled)'}</span>
-          <span className="task__meta">
-            {due && !task.completed && <span className={clsx('due', `due--${due.tone}`)}>{due.text}</span>}
-            {task.reminderAt && (
-              <span className="task__chip" title="Orbitdesk reminder">
-                <Bell size={11} aria-hidden="true" /> {shortDateTime(task.reminderAt, now)}
-              </span>
-            )}
-            {task.source && (
-              <span className="task__chip" title={`From ${task.source.kind}: ${task.source.title}`}>
-                <Link2 size={11} aria-hidden="true" /> {task.source.title}
-              </span>
-            )}
-            {task.assigned && <span className="task__chip">Assigned</span>}
-            {showAll && (
-              <>
-                <AccountBadge accountId={task.accountId} />
-                <span className="task__list">{listTitle(task.taskListId)}</span>
-              </>
-            )}
-            {task.notes && <span className="task__notes">{task.notes.split('\n')[0]}</span>}
-          </span>
+          {task.source && (
+            <span className="task__src" title={`From ${task.source.kind}: ${task.source.title}`}>
+              <Link2 size={11} aria-hidden="true" /> {task.source.title}
+            </span>
+          )}
         </button>
+        <span className="task__meta">
+          {showAll && (
+            <span className="task__list" title={account(task.accountId)?.email}>
+              <AccountDot account={account(task.accountId)} size={7} />
+              {listTitle(task.taskListId)}
+            </span>
+          )}
+          {due && !task.completed && <span className={clsx('due', `due--${due.tone}`)}>{due.text}</span>}
+        </span>
         <span className="task__actions">
           {sourceHref && (
             <a className="icon-btn" href={sourceHref} target="_blank" rel="noopener noreferrer" aria-label="Open the source" title="Open the source">
@@ -271,7 +245,7 @@ export function TasksView({ listId }: { listId?: string }) {
               <CornerDownRight size={15} />
             </IconButton>
           )}
-          <IconButton label="Delete task" busy={busy} onClick={() => remove(task)}>
+          <IconButton label="Delete" busy={busy} onClick={() => remove(task)}>
             <Trash2 size={15} />
           </IconButton>
         </span>
@@ -291,85 +265,82 @@ export function TasksView({ listId }: { listId?: string }) {
     ]);
   };
 
-  const buckets: Bucket[] = ['overdue', 'today', 'week', 'later', 'none'];
-
   return (
-    <div className="view view--tasks">
-      <ViewHeader
-        kicker={`Tasks · ${plural(lists.length, 'list')} in ${plural(accountIds.length, 'account')}`}
-        title={showAll ? 'All open tasks' : (selected?.title ?? 'Tasks')}
-        aside={
-          <Button
-            variant="primary"
-            icon={<Plus size={15} />}
-            disabled={lists.length === 0}
-            onClick={() => openDialog({ initial: { taskListId: targetListId || undefined } })}
-          >
-            New task
-          </Button>
-        }
-      >
-        {selected && <AccountBadge accountId={selected.accountId} showEmail />}
-      </ViewHeader>
-
-      <div className="tasks">
-        <aside className="tasks__lists" aria-label="Task lists">
-          <a className={clsx('tasks__list', showAll && 'is-active')} href="#/tasks" aria-current={showAll ? 'page' : undefined}>
-            <ListChecks size={15} aria-hidden="true" />
-            <span className="tasks__list-name">All open tasks</span>
-            <span className="tasks__list-count">{lists.reduce((sum, l) => sum + l.openCount, 0) || ''}</span>
-          </a>
-          {taskAccounts.length === 0 && lists.length === 0 && (
-            <p className="tasks__none">No connected account has Google Tasks access.</p>
-          )}
-          {Array.from(new Set([...accountIds, ...taskAccounts.map((c) => c.id)])).map((accountId) => {
-            const owner = account(accountId);
-            return (
-              <div key={accountId} className="tasks__group">
-                <div className="tasks__owner">
-                  <AccountDot account={owner} />
-                  <span className="tasks__owner-name">{owner?.label ?? 'Account'}</span>
-                  <IconButton label={`New list in ${owner?.label ?? 'this account'}`} onClick={() => setListDialog({ mode: 'create', accountId })}>
-                    <Plus size={14} />
-                  </IconButton>
+    <div className="mail">
+      <header className="bar">
+        <Popover
+          open={listsOpen}
+          onClose={() => setListsOpen(false)}
+          panelClassName="acctlist"
+          trigger={
+            <button type="button" className="tabs__tab is-active" aria-haspopup="menu" aria-expanded={listsOpen} onClick={() => setListsOpen((value) => !value)}>
+              {showAll ? 'All tasks' : (selected?.title ?? 'Tasks')}
+              <ChevronDown size={13} aria-hidden="true" />
+            </button>
+          }
+        >
+          <div role="menu" aria-label="Task lists">
+            <a role="menuitem" className="menu__item" href="#/tasks" onClick={() => setListsOpen(false)}>
+              <span className="menu__icon">{showAll && <Check size={14} />}</span>
+              <span className="menu__label">All tasks</span>
+              <span className="menu__hint num">{lists.reduce((sum, l) => sum + l.openCount, 0) || ''}</span>
+            </a>
+            {accountIds.map((accountId) => {
+              const owner = account(accountId);
+              return (
+                <div key={accountId}>
+                  <div className="menu__divider" role="separator" />
+                  <div className="menu__title">{owner?.label ?? 'Account'}</div>
+                  {lists
+                    .filter((l) => l.accountId === accountId)
+                    .map((list) => (
+                      <a key={list.id} role="menuitem" className="menu__item" href={routePath('tasks', list.id)} onClick={() => setListsOpen(false)}>
+                        <span className="menu__icon">{list.id === listId ? <Check size={14} /> : <AccountDot account={owner} size={7} />}</span>
+                        <span className="menu__label">{list.title}</span>
+                        <span className="menu__hint num">{list.openCount || ''}</span>
+                      </a>
+                    ))}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="menu__item"
+                    onClick={() => {
+                      setListsOpen(false);
+                      setListDialog({ mode: 'create', accountId });
+                    }}
+                  >
+                    <span className="menu__icon">
+                      <Plus size={14} />
+                    </span>
+                    <span className="menu__label muted">New list</span>
+                  </button>
                 </div>
-                {lists
-                  .filter((l) => l.accountId === accountId)
-                  .map((list) => {
-                    const active = list.id === listId;
-                    return (
-                      <div key={list.id} className={clsx('tasks__list', active && 'is-active')}>
-                        <a className="tasks__list-link" href={routePath('tasks', list.id)} aria-current={active ? 'page' : undefined}>
-                          <span className="tasks__list-name">{list.title}</span>
-                          <span className="tasks__list-count">{list.openCount || ''}</span>
-                        </a>
-                        <Menu
-                          label={`Actions for ${list.title}`}
-                          button={<MoreHorizontal size={15} />}
-                          buttonClassName="icon-btn icon-btn--sm tasks__list-menu"
-                          items={[
-                            { label: 'Rename', icon: <Pencil size={14} />, onSelect: () => setListDialog({ mode: 'rename', list }) },
-                            {
-                              label: list.isDefault ? 'Default list can’t be deleted' : 'Delete list',
-                              icon: <Trash2 size={14} />,
-                              danger: !list.isDefault,
-                              disabled: list.isDefault,
-                              onSelect: () => setDeleteList(list),
-                            },
-                          ]}
-                        />
-                      </div>
-                    );
-                  })}
-              </div>
-            );
-          })}
-        </aside>
+              );
+            })}
+          </div>
+        </Popover>
+        {selected && (
+          <Menu
+            label="List actions"
+            align="start"
+            button={<MoreHorizontal size={16} />}
+            items={[
+              { label: 'Rename list', icon: <Pencil size={14} />, onSelect: () => setListDialog({ mode: 'rename', list: selected }) },
+              { label: selected.isDefault ? 'The default list can’t be deleted' : 'Delete list', icon: <Trash2 size={14} />, danger: !selected.isDefault, disabled: selected.isDefault, onSelect: () => setDeleteList(selected) },
+            ]}
+          />
+        )}
+        <span className="bar__gap" />
+        <AccountFilter />
+        <IconButton label="New task with details" disabled={lists.length === 0} onClick={() => openDialog({ initial: { taskListId: targetListId || undefined } })}>
+          <Plus size={17} />
+        </IconButton>
+      </header>
 
-        <section className="tasks__main" aria-label={showAll ? 'All open tasks' : (selected?.title ?? 'Tasks')}>
+      <div className="scroll">
+        <div className="column column--narrow">
           {listId && !selected ? (
-            <EmptyState title="That list is not available">
-              It may have been deleted, or its account was disconnected.{' '}
+            <EmptyState title="That list is gone">
               <a href="#/tasks" className="link-btn">
                 Show all tasks
               </a>
@@ -383,96 +354,79 @@ export function TasksView({ listId }: { listId?: string }) {
                   void quickAdd();
                 }}
               >
-                <Plus size={16} aria-hidden="true" className="quickadd__icon" />
+                <Plus size={16} aria-hidden="true" />
                 <input
+                  ref={quickRef}
                   className="quickadd__input"
                   type="text"
-                  aria-label="New task title"
-                  placeholder={lists.length ? 'Add a task and press Enter' : 'Connect an account with Google Tasks to add tasks'}
+                  aria-label="New task"
+                  placeholder={lists.length ? 'Add a task' : 'Connect an account with Google Tasks first'}
                   value={quick}
-                  disabled={lists.length === 0}
+                  disabled={lists.length === 0 || adding}
                   onChange={(e) => setQuick(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') e.currentTarget.blur();
+                  }}
                 />
-                <input
-                  className="quickadd__date"
-                  type="date"
-                  aria-label="Due date"
-                  value={quickDue}
-                  disabled={lists.length === 0}
-                  onChange={(e) => setQuickDue(e.target.value)}
-                />
-                {showAll && lists.length > 0 && (
+                {showAll && lists.length > 1 && (
                   <select className="quickadd__list" aria-label="List to add to" value={targetListId} onChange={(e) => setQuickList(e.target.value)}>
                     {lists.map((l) => (
                       <option key={l.id} value={l.id}>
-                        {l.title} — {account(l.accountId)?.label ?? 'account'}
+                        {l.title} · {account(l.accountId)?.label ?? 'account'}
                       </option>
                     ))}
                   </select>
                 )}
-                <Button type="submit" size="sm" variant="primary" busy={adding} disabled={!quick.trim() || !targetListId}>
-                  Add
-                </Button>
               </form>
 
               {tasks.data && <GapNotice gaps={tasks.data.gaps} />}
-              {tasks.error && tasks.data && <StaleNotice error={tasks.error} onRetry={tasks.reload} />}
-              {tasks.loading && <SkeletonRows count={7} />}
+              {tasks.loading && <SkeletonRows count={6} />}
               {tasks.error && !tasks.data && <ErrorState error={tasks.error} onRetry={tasks.reload} />}
 
               {tasks.data && open.length === 0 && (
-                <EmptyState icon={<ListChecks size={22} />} title={showAll ? 'No open tasks' : 'This list is clear'}>
-                  {tasks.data.gaps.length
-                    ? 'Some lists could not be read — see the notice above.'
-                    : 'Add one above, or create a task from an email with the “Create task” button in any conversation.'}
+                <EmptyState icon={<ListChecks size={22} />} title={showAll ? 'Nothing to do' : 'This list is clear'}>
+                  Tasks the agent spots in your mail show up as one-click suggestions in the conversation.
                 </EmptyState>
               )}
 
-              {tasks.data && open.length > 0 && showAll && (
-                <div className="taskgroups">
-                  {buckets.map((bucket) => {
-                    const inBucket = open.filter((task) => bucketOf(task, now) === bucket).sort((a, b) => (a.due ?? '').localeCompare(b.due ?? ''));
-                    if (!inBucket.length) return null;
-                    return (
-                      <section key={bucket} className={clsx('taskgroup', `taskgroup--${bucket}`)}>
-                        <h2 className="taskgroup__title">
-                          {BUCKET_LABEL[bucket]} <span>{inBucket.length}</span>
-                        </h2>
-                        <ul className="tasklist">{inBucket.map((task) => renderTask(task, 0))}</ul>
-                      </section>
-                    );
-                  })}
-                </div>
-              )}
+              {tasks.data &&
+                open.length > 0 &&
+                showAll &&
+                BUCKETS.map((bucket) => {
+                  const inBucket = open.filter((task) => bucketOf(task, now) === bucket.id).sort((a, b) => (a.due ?? '').localeCompare(b.due ?? ''));
+                  if (!inBucket.length) return null;
+                  return (
+                    <section key={bucket.id} className="taskgroup">
+                      <h2 className={clsx('taskgroup__title', bucket.id === 'overdue' && 'is-overdue')}>
+                        {bucket.label} <span>{inBucket.length}</span>
+                      </h2>
+                      <ul>{inBucket.map((task) => renderTask(task, 0))}</ul>
+                    </section>
+                  );
+                })}
 
-              {tasks.data && open.length > 0 && !showAll && <ul className="tasklist">{renderTree(open)}</ul>}
+              {tasks.data && open.length > 0 && !showAll && <ul>{renderTree(open)}</ul>}
 
               {tasks.data && !showAll && done.length > 0 && (
-                <section className="taskdone">
-                  <button type="button" className="taskdone__toggle" aria-expanded={showDone} onClick={() => setShowDone((v) => !v)}>
-                    {showDone ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                <section className="taskgroup">
+                  <button type="button" className="taskgroup__title taskgroup__title--toggle" aria-expanded={showDone} onClick={() => setShowDone((v) => !v)}>
                     Completed <span>{done.length}</span>
+                    <ChevronDown size={13} aria-hidden="true" style={{ transform: showDone ? 'rotate(180deg)' : undefined }} />
                   </button>
-                  {showDone && (
-                    <ul className="tasklist">
-                      {done
-                        .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''))
-                        .map((task) => renderTask(task, 0))}
-                    </ul>
-                  )}
+                  {showDone && <ul>{done.sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? '')).map((task) => renderTask(task, 0))}</ul>}
                 </section>
               )}
 
               {tasks.data?.nextCursor && (
-                <div className="inbox__more">
-                  <Button busy={moreBusy} onClick={loadMore}>
-                    Load more tasks
+                <div className="more">
+                  <Button size="sm" variant="ghost" busy={moreBusy} onClick={loadMore}>
+                    Load more
                   </Button>
                 </div>
               )}
             </>
           )}
-        </section>
+        </div>
       </div>
 
       {dialog && (
@@ -485,9 +439,7 @@ export function TasksView({ listId }: { listId?: string }) {
             if (showAll || saved.taskListId === listId) replaceTask(saved);
             else tasks.mutate((current) => ({ ...current, items: current.items.filter((item) => item.id !== saved.id) }));
           }}
-          onDeleted={(id) =>
-            tasks.mutate((current) => ({ ...current, items: current.items.filter((item) => item.id !== id && item.parentId !== id) }))
-          }
+          onDeleted={(id) => tasks.mutate((current) => ({ ...current, items: current.items.filter((item) => item.id !== id && item.parentId !== id) }))}
         />
       )}
 
@@ -496,10 +448,7 @@ export function TasksView({ listId }: { listId?: string }) {
           state={listDialog}
           onClose={() => setListDialog(null)}
           onSaved={(list, created) => {
-            patchBoot((current) => ({
-              ...current,
-              taskLists: created ? [...current.taskLists, list] : current.taskLists.map((l) => (l.id === list.id ? list : l)),
-            }));
+            patchBoot((current) => ({ ...current, taskLists: created ? [...current.taskLists, list] : current.taskLists.map((l) => (l.id === list.id ? list : l)) }));
             refreshBoot();
             if (created) navigate(routePath('tasks', list.id));
           }}
@@ -507,17 +456,10 @@ export function TasksView({ listId }: { listId?: string }) {
       )}
 
       {deleteList && (
-        <ConfirmDialog
-          title={`Delete “${deleteList.title}”?`}
-          confirmLabel="Delete list"
-          danger
-          busy={deletingList}
-          onClose={() => setDeleteList(null)}
-          onConfirm={removeList}
-        >
+        <ConfirmDialog title={`Delete “${deleteList.title}”?`} confirmLabel="Delete list" danger busy={deletingList} onClose={() => setDeleteList(null)} onConfirm={removeList}>
           <p>
-            The list and its {deleteList.openCount ? plural(deleteList.openCount, 'open task') : 'tasks'} are deleted from
-            Google Tasks in {account(deleteList.accountId)?.email ?? 'the account'}. This cannot be undone.
+            The list and its {deleteList.openCount ? plural(deleteList.openCount, 'open task') : 'tasks'} are deleted from Google Tasks in{' '}
+            {account(deleteList.accountId)?.email ?? 'the account'}. This cannot be undone.
           </p>
         </ConfirmDialog>
       )}
@@ -544,10 +486,7 @@ function ListDialog({
     setBusy(true);
     setError(null);
     try {
-      const saved =
-        state.mode === 'create'
-          ? await api.createTaskList({ accountId: state.accountId, title: title.trim() })
-          : await api.updateTaskList(state.list.id, { title: title.trim() });
+      const saved = state.mode === 'create' ? await api.createTaskList({ accountId: state.accountId, title: title.trim() }) : await api.updateTaskList(state.list.id, { title: title.trim() });
       onSaved(saved, state.mode === 'create');
       onClose();
     } catch (err) {
@@ -558,7 +497,7 @@ function ListDialog({
 
   return (
     <Dialog
-      title={state.mode === 'create' ? 'New task list' : 'Rename list'}
+      title={state.mode === 'create' ? 'New list' : 'Rename list'}
       size="sm"
       onClose={onClose}
       kicker={<AccountBadge accountId={accountId} showEmail />}
@@ -568,7 +507,7 @@ function ListDialog({
             Cancel
           </Button>
           <Button variant="primary" busy={busy} disabled={!title.trim()} onClick={submit}>
-            {state.mode === 'create' ? 'Create list' : 'Rename'}
+            {state.mode === 'create' ? 'Create' : 'Rename'}
           </Button>
         </>
       }
@@ -580,14 +519,10 @@ function ListDialog({
           void submit();
         }}
       >
-        <Field label="List name" hint="The list is created in Google Tasks for this account.">
+        <Field label="Name">
           <input className="input" type="text" value={title} onChange={(e) => setTitle(e.target.value)} data-autofocus />
         </Field>
-        {error && (
-          <Notice tone="danger">
-            {error.message} <span className="mono-note">({error.code})</span>
-          </Notice>
-        )}
+        {error && <Notice tone="danger">{error.message}</Notice>}
         <button type="submit" hidden />
       </form>
     </Dialog>

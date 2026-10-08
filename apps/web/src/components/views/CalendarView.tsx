@@ -7,11 +7,9 @@ import {
   CalendarSearch,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   Layers,
   MapPin,
   Plus,
-  RotateCw,
   TriangleAlert,
   Video,
 } from 'lucide-react';
@@ -24,7 +22,8 @@ import type { Calendar, CalendarEvent, CalendarPreference, Id } from '@/lib/type
 import { AccountDot, GapNotice, useApp } from '../AppContext';
 import { EventDialog, type EventSeed } from '../calendar/EventDialog';
 import { SlotFinder } from '../calendar/SlotFinder';
-import { Button, EmptyState, ErrorState, IconButton, LoadingBlock, Popover, Spinner, StaleNotice, ViewHeader } from '../ui';
+import { AccountFilter } from '../Shell';
+import { Button, EmptyState, ErrorState, IconButton, LoadingBlock, Popover, Spinner, StaleNotice } from '../ui';
 
 const HOUR_PX = 48;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
@@ -208,71 +207,60 @@ export function CalendarView() {
   const nowTop = ((now.getHours() * 60 + now.getMinutes()) / 60) * HOUR_PX;
 
   return (
-    <div className="view view--calendar">
-      <ViewHeader
-        kicker={`Calendar · ${shown} of ${boot.calendars.length} calendars shown`}
-        title={title}
-        aside={
-          <>
-            <Button icon={<CalendarSearch size={15} />} onClick={() => setFinding(true)} disabled={boot.calendars.length === 0}>
-              Find a time
-            </Button>
-            <Button variant="primary" icon={<Plus size={15} />} onClick={() => openNew()} disabled={!canCreate}>
-              New event
-            </Button>
-          </>
-        }
-      />
-
-      <div className="calbar">
-        <div className="calbar__nav">
-          <IconButton label="Previous week" onClick={() => setAnchor(addDays(anchor, -7))}>
-            <ChevronLeft size={18} />
-          </IconButton>
-          <Button size="sm" onClick={() => setAnchor(new Date())}>
-            Today
-          </Button>
-          <IconButton label="Next week" onClick={() => setAnchor(addDays(anchor, 7))}>
-            <ChevronRight size={18} />
-          </IconButton>
-          <span className="calbar__range">{rangeLabel}</span>
-          {events.refreshing && <Spinner size={14} label="Refreshing" />}
+    <div className="cal">
+      <header className="bar">
+        <span className="bar__title">{title}</span>
+        <IconButton label="Previous week" onClick={() => setAnchor(addDays(anchor, -7))}>
+          <ChevronLeft size={17} />
+        </IconButton>
+        <Button size="sm" variant="ghost" onClick={() => setAnchor(new Date())}>
+          Today
+        </Button>
+        <IconButton label="Next week" onClick={() => setAnchor(addDays(anchor, 7))}>
+          <ChevronRight size={17} />
+        </IconButton>
+        {events.refreshing && <Spinner size={14} label="Refreshing" />}
+        <span className="bar__gap" />
+        <div className="seg" role="group" aria-label="Layout">
+          <button type="button" className={clsx('seg__btn', mode === 'week' && 'is-active')} aria-pressed={mode === 'week'} onClick={() => setModeChoice('week')}>
+            Week
+          </button>
+          <button type="button" className={clsx('seg__btn', mode === 'agenda' && 'is-active')} aria-pressed={mode === 'agenda'} onClick={() => setModeChoice('agenda')}>
+            Agenda
+          </button>
         </div>
-        <div className="calbar__right">
-          <div className="seg" role="group" aria-label="Calendar layout">
-            <button type="button" className={clsx('seg__btn', mode === 'week' && 'is-active')} aria-pressed={mode === 'week'} onClick={() => setModeChoice('week')}>
-              Week
+        <Popover
+          open={calendarsOpen}
+          onClose={() => setCalendarsOpen(false)}
+          align="end"
+          panelClassName="calpanel"
+          trigger={
+            <button
+              type="button"
+              className="acctfilter"
+              aria-haspopup="dialog"
+              aria-expanded={calendarsOpen}
+              title="Choose calendars"
+              onClick={() => setCalendarsOpen((value) => !value)}
+            >
+              <Layers size={14} aria-hidden="true" />
+              <span>
+                {shown} of {boot.calendars.length}
+              </span>
+              {brokenCalendars.length > 0 && <TriangleAlert size={13} className="acct-badge__warn" aria-label="Some calendars are unreadable" />}
             </button>
-            <button type="button" className={clsx('seg__btn', mode === 'agenda' && 'is-active')} aria-pressed={mode === 'agenda'} onClick={() => setModeChoice('agenda')}>
-              Agenda
-            </button>
-          </div>
-          <Popover
-            open={calendarsOpen}
-            onClose={() => setCalendarsOpen(false)}
-            align="end"
-            panelClassName="calpanel"
-            trigger={
-              <button
-                type="button"
-                className="btn btn--outline btn--sm"
-                aria-haspopup="dialog"
-                aria-expanded={calendarsOpen}
-                onClick={() => setCalendarsOpen((value) => !value)}
-              >
-                <Layers size={14} aria-hidden="true" />
-                <span>Calendars</span>
-                {brokenCalendars.length > 0 && <TriangleAlert size={13} className="calbar__warn" aria-label="Some calendars are unreadable" />}
-              </button>
-            }
-          >
-            <CalendarPanel accountIds={accountIds} calendars={boot.calendars} busyId={prefBusy} onChange={setPreference} />
-          </Popover>
-          <IconButton label="Refresh events" onClick={events.reload}>
-            <RotateCw size={16} />
-          </IconButton>
-        </div>
-      </div>
+          }
+        >
+          <CalendarPanel accountIds={accountIds} calendars={boot.calendars} busyId={prefBusy} onChange={setPreference} />
+        </Popover>
+        <AccountFilter />
+        <IconButton label="Find a time" onClick={() => setFinding(true)} disabled={boot.calendars.length === 0}>
+          <CalendarSearch size={16} />
+        </IconButton>
+        <IconButton label="New event" onClick={() => openNew()} disabled={!canCreate}>
+          <Plus size={17} />
+        </IconButton>
+      </header>
 
       {events.data && <GapNotice gaps={events.data.gaps} />}
       {events.error && events.data && <StaleNotice error={events.error} onRetry={events.reload} />}
@@ -290,9 +278,7 @@ export function CalendarView() {
           <div className="week__scroll" ref={scrollRef}>
             <div className="week__inner">
               <div className="week__head" role="row">
-                <div className="week__corner" aria-hidden="true">
-                  <Clock3 size={13} />
-                </div>
+                <div className="week__corner" aria-hidden="true" />
                 {days.map((day) => {
                   const today = isSameDay(day, now);
                   return (
@@ -429,7 +415,7 @@ export function CalendarView() {
                             <span className="agenda__meta">
                               <AccountDot account={owner} />
                               <span>{owner?.label ?? 'Removed account'}</span>
-                              <span>· {calendar?.name ?? 'Calendar'}</span>
+                              {calendar && calendar.name !== owner?.label && <span>· {calendar.name}</span>}
                               {event.location && (
                                 <span className="agenda__loc">
                                   <MapPin size={12} aria-hidden="true" /> {event.location}

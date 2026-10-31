@@ -1,11 +1,11 @@
 import { execFile, spawn } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { encrypt } from '../packages/core/src/security';
 import { requireSecret } from '../packages/core/src/config';
+import { mockStore } from './mock-store';
 import { sealedEnv } from './no-keyring';
 
 const ROOT = resolve(__dirname, '..');
@@ -23,22 +23,6 @@ const REQUIRED_WHEN_DEPLOYED = {
 const PLATFORM_VARIABLES = new Set(['HOSTNAME', 'NEXT_RUNTIME']);
 
 type Run = { status: number; stdout: string; stderr: string };
-
-/** A fake Infisical that answers Universal Auth and the raw secrets call. */
-function mockStore(secrets: Record<string, string>, refuse = false) {
-  const calls: string[] = [];
-  const server = createServer((req, res) => {
-    calls.push(req.url!);
-    const reply = (status: number, body: unknown) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
-    if (refuse) return reply(403, { message: 'refused' });
-    if (req.url!.startsWith('/api/v1/auth/universal-auth/login')) return reply(200, { accessToken: 'synthetic-token', expiresIn: 3600, accessTokenMaxTTL: 3600, tokenType: 'Bearer' });
-    if (req.headers.authorization !== 'Bearer synthetic-token') return reply(401, { message: 'unauthorized' });
-    if (req.url!.startsWith('/api/v3/secrets/raw')) return reply(200, { secrets: Object.entries(secrets).map(([secretKey, secretValue]) => ({ secretKey, secretValue })), imports: [] });
-    reply(404, { message: 'unexpected' });
-  });
-  const url = new Promise<string>(ready => server.listen(0, '127.0.0.1', () => ready(`http://127.0.0.1:${(server.address() as { port: number }).port}`)));
-  return { calls, url, close: () => new Promise(done => (server as Server).close(done)) };
-}
 
 describe('the environment contract', () => {
   let base: string, repo: string, home: string;

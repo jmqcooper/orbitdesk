@@ -14,7 +14,7 @@ git checkout-index -z --stdin --prefix="$index_copy/files/" <"$index_copy/paths"
 
 # The scanner's report can print a second secret from the same line, so only
 # its status is used.
-if ! VARLOCK_TELEMETRY_DISABLED=true node_modules/.bin/varlock scan "$index_copy/files" >/dev/null 2>&1; then
-  printf '%s\n' 'Secret scan failed. Check staged files and secret-store access. See docs/SECRETS.md.' >&2
+if ! node scripts/scan-staged.mjs "$index_copy/files" >/dev/null 2>&1; then
+  printf '%s\n' 'Secret scan failed. Check staged files and secret-store access, and commit outside the credential proxy. See docs/SECRETS.md.' >&2
   exit 1
 fi

@@ -117,6 +117,10 @@ describe('the environment contract', () => {
     it('accepts the shapes production uses', async () => {
       expect(await invalid({ ORBITDESK_ENV_PROFILE: 'deployed', DATABASE_URL: 'postgres://user:p%40ss@postgres.railway.internal:5432/railway?sslmode=require', APP_URL: 'https://web-production-cbebe.up.railway.app', SESSION_SECRET: 'x'.repeat(32), TOKEN_ENCRYPTION_KEY: VALID_KEY, ENABLE_DEMO: 'true', OPENROUTER_DATA_COLLECTION: 'deny', PORT: '3100', APP_ROLE: 'web' })).toEqual([]);
     });
+    it.each(['#web', '#worker', '#db'])('rejects an invalid database port before %s starts', async filter => {
+      const values = { ORBITDESK_ENV_PROFILE: 'deployed', DATABASE_URL: 'postgresql://user:pass@localhost:abc/db', APP_URL: 'https://app.example', SESSION_SECRET: 'x'.repeat(32), TOKEN_ENCRYPTION_KEY: VALID_KEY, APP_ROLE: filter === '#worker' ? 'worker' : 'web' };
+      expect(await invalid(values, ['--filter', filter])).toEqual(['DATABASE_URL']);
+    });
     it('holds SESSION_SECRET to the same limit as the app', async () => {
       process.env.CONTRACT_SECRET = 'x'.repeat(31);
       expect(() => requireSecret('CONTRACT_SECRET')).toThrow();

@@ -179,6 +179,19 @@ describe('pre-commit secret scan', () => {
     stage('echo http://localhost:3100\n');
     expect(fixture.git(...COMMIT).status).toBe(0);
   });
+  it.each(['packages/core/.env', 'packages/core/prisma/.env'])('blocks both Prisma-expanded and literal values from %s', source => {
+    const literal = `postgresql://synthetic:${OTHER_SECRET}@127.0.0.1:${'${PORT}'}/review`;
+    const expanded = literal.replace('${PORT}', '5432');
+    mkdirSync(dirname(file(source)), { recursive: true });
+    writeFileSync(file(source), `PORT=5432\nDATABASE_URL=${literal}\n`);
+    stage(`echo ${expanded}\n`);
+    blocked(fixture.git(...COMMIT), expanded);
+    expect(headFiles()).not.toContain('deploy.sh');
+    stage(`echo ${literal}\n`);
+    blocked(fixture.git(...COMMIT), literal);
+    stage(CLEAN);
+    expect(fixture.git(...COMMIT).status).toBe(0);
+  });
   it.each([['missing', null], ['empty', ''], ['without a declaration', '# No declarations\n']])('will not call a scan clean when .env.schema is %s', (_, text) => {
     if (text === null) rmSync(file('.env.schema'));
     else writeFileSync(file('.env.schema'), text);

@@ -17,6 +17,17 @@ const env = {
   VARLOCK_TELEMETRY_DISABLED: 'true',
 };
 
+function prismaValues(parsed, inherited) {
+  const scope = { ...parsed, ...inherited };
+  const expand = value => value.match(/(.?\$\{(?:[a-zA-Z0-9_]+)?\})/g)?.reduce((expanded, match) => {
+    const [, prefix, key] = /(.?)\$\{([a-zA-Z0-9_]+)?\}/.exec(match);
+    const token = prefix === '\\' ? match : match.slice(prefix.length);
+    const replacement = prefix === '\\' ? match.replace('\\$', '$') : expand(scope[key] ?? '');
+    return expanded.replace(token, replacement);
+  }, value) ?? value;
+  return Object.fromEntries(Object.keys(parsed).map(key => [key, expand(scope[key])]));
+}
+
 function scanStaged() {
   // A proxy child holds placeholders, so its scan matches nothing. It must not recover real values.
   if (Object.keys(process.env).some(key => /^__?VARLOCK_PROXY_/.test(key))) return 1;
@@ -41,8 +52,12 @@ function scanStaged() {
   if (load.status !== 0 || Object.keys(graph.config ?? {}).length === 0 || graph.runtime?.proxy?.active) return 1;
 
   const values = new Set(Object.values(graph.config).filter(item => item.isSensitive && typeof item.value === 'string' && item.value !== '').map(item => item.value));
+  const prismaEnv = { ...Object.fromEntries(Object.entries(graph.config).filter(([, item]) => ['string', 'number', 'boolean'].includes(typeof item.value)).map(([key, item]) => [key, String(item.value)])), ...env };
   for (const file of packageEnvFiles.filter(path => existsSync(path))) {
-    for (const [key, value] of Object.entries(parseEnv(readFileSync(file, 'utf8')))) {
+    const parsed = parseEnv(readFileSync(file, 'utf8'));
+    const expanded = file.startsWith('packages/core/') ? prismaValues(parsed, prismaEnv) : {};
+    Object.assign(prismaEnv, expanded);
+    for (const [key, value] of [...Object.entries(parsed), ...Object.entries(expanded)]) {
       if (value !== '' && graph.config[key]?.isSensitive !== false) values.add(value);
     }
   }

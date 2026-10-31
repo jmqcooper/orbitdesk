@@ -2,7 +2,7 @@
 
 Your inbox, already handled. Orbitdesk brings the mail, calendars, tasks and files of every Google account you have into one place. An agent sorts new mail into three lanes and writes the replies in your voice; you read, tweak and send.
 
-**[Open the app](https://web-production-cbebe.up.railway.app)** · **[Full product scope](MVP-SCOPE.md)** · **[API contract](docs/API-CONTRACT.md)** · **[Verification record](docs/VERIFICATION.md)**
+**[Open the app](https://web-production-cbebe.up.railway.app)** · **[Full product scope](MVP-SCOPE.md)** · **[API contract](docs/API-CONTRACT.md)** · **[Verification record](docs/VERIFICATION.md)** · **[Secrets](docs/SECRETS.md)**
 
 The public sandbox creates a separate workspace for every visitor, with 12 simulated accounts and 8 calendars. It opens already sorted, with sample drafts prepared, so the flow is visible at once; anything you ask the agent there runs on the real model. Sandbox sends and Google changes are simulated and never affect real accounts.
 
@@ -54,7 +54,7 @@ pnpm dev
 pnpm --filter @orbitdesk/worker dev
 ```
 
-Open http://localhost:3100 and choose the sandbox, or configure Google OAuth and sign in. Development loads the root `.env`; do not commit that file.
+Open http://localhost:3100 and choose the sandbox, or configure Google OAuth and sign in. Development loads the root `.env`; do not commit that file. `.env.schema` lists every variable, and a machine with a shared-secrets profile fills in whatever `.env` leaves out. See [Secrets and environment](docs/SECRETS.md).
 
 ## Models
 
@@ -96,7 +96,7 @@ SESSION_SECRET=YOUR_RANDOM_SECRET
 TOKEN_ENCRYPTION_KEY=YOUR_BASE64_KEY
 ```
 
-Add `OPENROUTER_API_KEY` and Google OAuth configuration using Railway secrets. Set `APP_ROLE=web` on web and `APP_ROLE=worker` on worker. Give web the pre-deploy command `pnpm db:migrate` and healthcheck `/api/health`. Deploy web first, then worker. Keep both services awake for scheduled work. Expose only web; Postgres and worker stay on the private network.
+Add `OPENROUTER_API_KEY` and Google OAuth configuration using Railway secrets. Set `APP_ROLE=web` on web and `APP_ROLE=worker` on worker. Railway variables are the only source of values in production, and both services refuse to start if a required one is missing or malformed. Give web the pre-deploy command `pnpm db:migrate` and healthcheck `/api/health`. Deploy web first, then worker. Keep both services awake for scheduled work. Expose only web; Postgres and worker stay on the private network.
 
 The worker runs TypeScript through `tsx`. The web app uses a production Next.js build. The Dockerfile installs locked dependencies and runs Prisma generation, the frontend build and worker type checking. Persistent state is in Postgres; containers require no persistent volume.
 

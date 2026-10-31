@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@next/env': npm:@varlock/nextjs-integration@2.0.0
+
 importers:
 
   .:
@@ -11,12 +14,18 @@ importers:
       '@types/node':
         specifier: ^24.0.0
         version: 24.19.1
+      '@varlock/infisical-plugin':
+        specifier: 2.1.3
+        version: 2.1.3(varlock@1.24.0)
       tsx:
         specifier: ^4.20.6
         version: 4.23.15
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+      varlock:
+        specifier: 1.24.0
+        version: 1.24.0
       vitest:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@24.19.1)(jiti@2.7.0)(tsx@4.23.15)
@@ -26,6 +35,9 @@ importers:
       '@orbitdesk/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@varlock/nextjs-integration':
+        specifier: 2.0.0
+        version: 2.0.0(next@16.3.8(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(varlock@1.24.0))(varlock@1.24.0)
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -37,13 +49,16 @@ importers:
         version: 0.577.0(react@19.3.0)
       next:
         specifier: ^16.2.0
-        version: 16.3.8(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 16.3.8(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(varlock@1.24.0)
       react:
         specifier: ^19.2.0
         version: 19.3.0
       react-dom:
         specifier: ^19.2.0
         version: 19.3.0(react@19.3.0)
+      varlock:
+        specifier: 1.24.0
+        version: 1.24.0
     devDependencies:
       '@types/react':
         specifier: ^19.2.0
@@ -60,6 +75,9 @@ importers:
       tsx:
         specifier: ^4.20.6
         version: 4.23.15
+      varlock:
+        specifier: 1.24.0
+        version: 1.24.0
     devDependencies:
       esbuild:
         specifier: ^0.25.0
@@ -106,6 +124,9 @@ importers:
       sanitize-html:
         specifier: ^2.17.0
         version: 2.18.0
+      varlock:
+        specifier: 1.24.0
+        version: 1.24.0
       zod:
         specifier: ^4.3.0
         version: 4.6.5
@@ -632,9 +653,6 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@next/env@16.3.8':
-    resolution: {integrity: sha512-Al9zqHVV7TJv0eFuOU4U7Lvv74PTih4Ch63sk2xCIpSTkE3udFnaOcnzP2lQVymiL7yS9Cj2iClUXlR3EQ5sEw==}
-
   '@next/swc-darwin-arm64@16.3.8':
     resolution: {integrity: sha512-2JPRMh2nmQG5CiL7cXGL9AGwnPWJQ//cTtAUCT+w511QHk79SYz3LGv/pc5X643B/WEO0rvu3Yww0hqwt3kgeA==}
     engines: {node: '>= 10'}
@@ -909,6 +927,37 @@ packages:
 
   '@types/sanitize-html@2.16.2':
     resolution: {integrity: sha512-kuAbgDCFv418flrp3z4o/4ufLA/5ovmXRH0L419iZCPGO7w00znjeDI5Wy/KZWNIBpDQc7hucCK+J5almB6FyA==}
+
+  '@varlock/infisical-plugin@2.1.3':
+    resolution: {integrity: sha512-Hb/PVOMSA08/L1WOteYXLZuzl7O2Pq7fy+nrFUgYilPfBCXAoTxWmQqcEY60nafonUPt/+fj8PD8Cx1MJD7tkg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      varlock: ^1.22.0
+
+  '@varlock/native-helper-darwin@1.24.0':
+    resolution: {integrity: sha512-/uMRBzTZxdtlwyszdPbamFojDfRQYTNY0l20SoX8UoTXrI+Kq7B3tt2ZDP0WfOhb9EAP1egAewBuGLj8NzemMQ==}
+    os: [darwin]
+
+  '@varlock/native-helper-linux-arm64@1.24.0':
+    resolution: {integrity: sha512-o2cMTiRtFNMNijxQxb8I7L6aQnEOTxB4QKYIZKAqbjoUCAFhStCwl1n2hj1J/rvCegSSaJT040T7r4culNZEqg==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@varlock/native-helper-linux-x64@1.24.0':
+    resolution: {integrity: sha512-gToIgVYiYBf5rEdgM2nUV+r/5pPdQWZu6/GW4uZQqYQ0ApRL3ZTPXF2D9FWnDXDhI5CyXnckxokzP5azcSRDBA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@varlock/native-helper-win32-x64@1.24.0':
+    resolution: {integrity: sha512-qudkH54KfX8dBmsQyAlC8BYlPwrxF0Drg6q4MHHVC7l7taTClYNqf6M6xRdIoNynyPDKTTPNjpOvoHwvRanEpg==}
+    os: [win32, linux]
+
+  '@varlock/nextjs-integration@2.0.0':
+    resolution: {integrity: sha512-l9Qt29e0Fygvd/ZW0PUOkpc3riOX+q/gdnKQKEdY4LkhC9kvyAIJ5d9yTRI7RpScb3IQL4OHNvb6rp0JZMBw+A==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      next: '>=14'
+      varlock: ^1.24.0
 
   '@vercel/oidc@3.2.0':
     resolution: {integrity: sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug==}
@@ -1854,6 +1903,11 @@ packages:
   url-template@2.0.8:
     resolution: {integrity: sha512-XdVKMF4SJ0nP/O7XIPB0JwAEuT9lDIYnNsK8yGVe43y0AWoKeJNdv3ZNWh7ksJ6KqQFjOO6ox/VEitLnaVNufw==}
 
+  varlock@1.24.0:
+    resolution: {integrity: sha512-BSns65LcQUfW8jzx/4wKfL7CYlfEzK8YwhGBS5OOzzmAyK/zooNCERvDhnjVOcFqWDcZVBSxB3tmo1FWeHRqMA==}
+    engines: {bun: '>=1.3.3', node: '>=22.3.0'}
+    hasBin: true
+
   vite-node@3.2.4:
     resolution: {integrity: sha512-EbKSKh+bh1E1IFxeO0pg1n4dvoOTt0UDiXMd/qn++r98+jPO1xtJilvXldeuQ8giIB5IkpjCgMleHMNEsGH6pg==}
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
@@ -2259,8 +2313,6 @@ snapshots:
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
 
-  '@next/env@16.3.8': {}
-
   '@next/swc-darwin-arm64@16.3.8':
     optional: true
 
@@ -2450,6 +2502,27 @@ snapshots:
   '@types/sanitize-html@2.16.2':
     dependencies:
       htmlparser2: 12.0.0
+
+  '@varlock/infisical-plugin@2.1.3(varlock@1.24.0)':
+    dependencies:
+      varlock: 1.24.0
+
+  '@varlock/native-helper-darwin@1.24.0':
+    optional: true
+
+  '@varlock/native-helper-linux-arm64@1.24.0':
+    optional: true
+
+  '@varlock/native-helper-linux-x64@1.24.0':
+    optional: true
+
+  '@varlock/native-helper-win32-x64@1.24.0':
+    optional: true
+
+  '@varlock/nextjs-integration@2.0.0(next@16.3.8(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(varlock@1.24.0))(varlock@1.24.0)':
+    dependencies:
+      next: 16.3.8(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(varlock@1.24.0)
+      varlock: 1.24.0
 
   '@vercel/oidc@3.2.0': {}
 
@@ -3080,9 +3153,9 @@ snapshots:
 
   nanoid@3.3.19: {}
 
-  next@16.3.8(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+  next@16.3.8(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(varlock@1.24.0):
     dependencies:
-      '@next/env': 16.3.8
+      '@next/env': '@varlock/nextjs-integration@2.0.0(next@16.3.8(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(varlock@1.24.0))(varlock@1.24.0)'
       '@swc/helpers': 0.5.23
       baseline-browser-mapping: 2.11.27
       caniuse-lite: 1.0.30001814
@@ -3105,6 +3178,7 @@ snapshots:
       - '@babel/core'
       - '@types/node'
       - babel-plugin-macros
+      - varlock
 
   node-domexception@1.0.0: {}
 
@@ -3490,6 +3564,13 @@ snapshots:
   undici@6.29.0: {}
 
   url-template@2.0.8: {}
+
+  varlock@1.24.0:
+    optionalDependencies:
+      '@varlock/native-helper-darwin': 1.24.0
+      '@varlock/native-helper-linux-arm64': 1.24.0
+      '@varlock/native-helper-linux-x64': 1.24.0
+      '@varlock/native-helper-win32-x64': 1.24.0
 
   vite-node@3.2.4(@types/node@24.19.1)(jiti@2.7.0)(tsx@4.23.15):
     dependencies:

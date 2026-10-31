@@ -11,8 +11,10 @@
     "typecheck": "pnpm -r typecheck",
     "db:generate": "pnpm --filter @orbitdesk/core db:generate",
     "db:migrate": "pnpm --filter @orbitdesk/core db:migrate",
-    "db:seed": "pnpm --filter @orbitdesk/core db:seed"
+    "db:seed": "pnpm --filter @orbitdesk/core db:seed",
+    "agent:proxy": "VARLOCK_TELEMETRY_DISABLED=true varlock proxy run --",
+    "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 && git config core.hooksPath .githooks || true"
   },
-  "devDependencies": { "typescript": "^5.9.3", "tsx": "^4.20.6", "vitest": "^3.2.4", "@types/node": "^24.0.0" }
+  "devDependencies": { "typescript": "^5.9.3", "tsx": "^4.20.6", "vitest": "^3.2.4", "@types/node": "^24.0.0", "varlock": "1.24.0", "@varlock/infisical-plugin": "2.1.3" }
 }
 

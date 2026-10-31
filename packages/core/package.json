@@ -9,9 +9,13 @@
   },
   "scripts": {
     "db:generate": "node --env-file-if-exists=../../.env node_modules/prisma/build/index.js generate",
-    "db:migrate": "node --env-file-if-exists=../../.env node_modules/prisma/build/index.js migrate deploy",
-    "db:seed": "node --env-file-if-exists=../../.env --import tsx src/seed-cli.ts",
+    "db:migrate": "VARLOCK_TELEMETRY_DISABLED=true varlock run -- node node_modules/prisma/build/index.js migrate deploy",
+    "db:seed": "VARLOCK_TELEMETRY_DISABLED=true varlock run -- node --import tsx src/seed-cli.ts",
     "typecheck": "tsc --noEmit"
+  },
+  "varlock": {
+    "loadPath": "../../",
+    "filter": "#db"
   },
   "dependencies": {
     "@openrouter/ai-sdk-provider": "^2.10.0",
@@ -27,6 +31,7 @@
     "prisma": "^6.19.0",
     "rrule": "^2.8.1",
     "sanitize-html": "^2.17.0",
+    "varlock": "1.24.0",
     "zod": "^4.3.0"
   },
   "devDependencies": {

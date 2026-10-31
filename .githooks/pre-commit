@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+[ -n "$(git diff --cached --name-only --diff-filter=ACMRT)" ] || exit 0
+
+# varlock scan --staged reads the working copy, so scan a copy of the index.
+# The path is literal because Varlock expands any target with a glob character.
+index_copy="$(mktemp -d /tmp/orbitdesk-staged.XXXXXXXX)"
+trap 'rm -rf "$index_copy"' EXIT
+trap 'exit 1' HUP INT TERM
+git diff --cached --name-only -z --diff-filter=ACMRT >"$index_copy/paths"
+mkdir "$index_copy/files"
+git checkout-index -z --stdin --prefix="$index_copy/files/" <"$index_copy/paths"
+
+# The scanner's report can print a second secret from the same line, so only
+# its status is used.
+if ! VARLOCK_TELEMETRY_DISABLED=true node_modules/.bin/varlock scan "$index_copy/files" >/dev/null 2>&1; then
+  printf '%s\n' 'Secret scan failed. Check staged files and secret-store access. See docs/SECRETS.md.' >&2
+  exit 1
+fi

@@ -12,3 +12,7 @@ onlyBuiltDependencies:
   - prisma
   - sharp
   - esbuild
+# Next loads env through @next/env. An unversioned alias would resolve to npm's
+# latest here instead of following the direct pin in apps/web.
+overrides:
+  '@next/env': 'npm:@varlock/nextjs-integration@2.0.0'

@@ -2,8 +2,14 @@
   "name": "@orbitdesk/web",
   "private": true,
   "version": "0.1.0",
-  "scripts": { "dev": "next dev --hostname 0.0.0.0 --port 3100", "build": "next build", "start": "next start --hostname 0.0.0.0", "typecheck": "tsc --noEmit" },
-  "dependencies": { "@orbitdesk/core": "workspace:*", "next": "^16.2.0", "react": "^19.2.0", "react-dom": "^19.2.0", "lucide-react": "^0.577.0", "clsx": "^2.1.1", "date-fns": "^4.1.0" },
+  "scripts": {
+    "dev": "export VARLOCK_TELEMETRY_DISABLED=true; node ../../scripts/shared-secrets-notice.mjs && varlock load --format json >/dev/null && next dev --hostname 0.0.0.0 --port 3100",
+    "build": "ORBITDESK_ENV_PROFILE=ci VARLOCK_TELEMETRY_DISABLED=true next build",
+    "start": "ORBITDESK_ENV_PROFILE=deployed VARLOCK_TELEMETRY_DISABLED=true next start --hostname 0.0.0.0",
+    "typecheck": "tsc --noEmit"
+  },
+  "varlock": { "loadPath": "../../", "filter": "#web" },
+  "dependencies": { "@orbitdesk/core": "workspace:*", "@varlock/nextjs-integration": "2.0.0", "next": "^16.2.0", "react": "^19.2.0", "react-dom": "^19.2.0", "lucide-react": "^0.577.0", "clsx": "^2.1.1", "date-fns": "^4.1.0", "varlock": "1.24.0" },
   "devDependencies": { "@types/react": "^19.2.0", "@types/react-dom": "^19.2.0" }
 }
 

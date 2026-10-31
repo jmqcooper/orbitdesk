@@ -22,6 +22,7 @@ jobs:
       TOKEN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       ENABLE_DEMO: 'true'
       NEXT_TELEMETRY_DISABLED: '1'
+      VARLOCK_TELEMETRY_DISABLED: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

@@ -1,6 +1,7 @@
 FROM node:24-alpine AS build
 RUN apk add --no-cache openssl libc6-compat && corepack enable && corepack prepare pnpm@11.18.0 --activate
 WORKDIR /app
+ENV ORBITDESK_SHARED_SECRETS=off VARLOCK_TELEMETRY_DISABLED=true
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
 COPY apps/worker/package.json apps/worker/package.json

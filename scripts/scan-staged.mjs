@@ -31,7 +31,8 @@ function prismaValues(parsed, inherited) {
 function scanStaged() {
   // A proxy child holds placeholders, so its scan matches nothing. It must not recover real values.
   if (Object.keys(process.env).some(key => /^__?VARLOCK_PROXY_/.test(key))) return 1;
-  if (!/^[A-Z][A-Z0-9_]*=/m.test(readFileSync('.env.schema', 'utf8'))) return 1;
+  const contract = readFileSync('.env.schema', 'utf8');
+  if (!/^[A-Z][A-Z0-9_]*=/m.test(contract)) return 1;
 
   // Cleared markers still leave the process tree. This schema has no private source to sign in to.
   writeFileSync(schema, '# @defaultRequired=false\n# ---\n# @sensitive=false @type=string\nSCAN_CONTEXT=1\n', { mode: 0o600 });
@@ -52,12 +53,25 @@ function scanStaged() {
   if (load.status !== 0 || Object.keys(graph.config ?? {}).length === 0 || graph.runtime?.proxy?.active) return 1;
 
   const values = new Set(Object.values(graph.config).filter(item => item.isSensitive && typeof item.value === 'string' && item.value !== '').map(item => item.value));
-  const prismaEnv = { ...Object.fromEntries(Object.entries(graph.config).filter(([, item]) => ['string', 'number', 'boolean'].includes(typeof item.value)).map(([key, item]) => [key, String(item.value)])), ...env };
+  const dbKeys = new Set([...contract.matchAll(/((?:^#.*\r?\n)+)^([A-Z][A-Z0-9_]*)=/gm)].filter(([, block]) => /@tag\([^)]*\bdb\b/.test(block)).map(([, , key]) => key));
+  const dbEnv = { ...env };
+  for (const [key, item] of Object.entries(graph.config)) {
+    delete dbEnv[key];
+    if (dbKeys.has(key) && !item.isInternal) {
+      if (item.value !== undefined) dbEnv[key] = String(item.value);
+      else if (graph.settings?.injectUndefinedAsEmpty) dbEnv[key] = '';
+    }
+  }
+  const rootEnv = existsSync('.env') ? parseEnv(readFileSync('.env', 'utf8')) : {};
+  const prismaEnvs = [{ ...rootEnv, ...env }, dbEnv];
+  for (const [key, value] of Object.entries(rootEnv)) {
+    if (value !== '' && graph.config[key]?.isSensitive !== false) values.add(value);
+  }
   for (const file of packageEnvFiles.filter(path => existsSync(path))) {
     const parsed = parseEnv(readFileSync(file, 'utf8'));
-    const expanded = file.startsWith('packages/core/') ? prismaValues(parsed, prismaEnv) : {};
-    Object.assign(prismaEnv, expanded);
-    for (const [key, value] of [...Object.entries(parsed), ...Object.entries(expanded)]) {
+    const expanded = file.startsWith('packages/core/') ? prismaEnvs.map(scope => prismaValues(parsed, scope)) : [];
+    expanded.forEach((scope, index) => Object.assign(prismaEnvs[index], scope));
+    for (const [key, value] of [parsed, ...expanded].flatMap(Object.entries)) {
       if (value !== '' && graph.config[key]?.isSensitive !== false) values.add(value);
     }
   }

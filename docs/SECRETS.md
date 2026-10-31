@@ -53,7 +53,7 @@ railway run --service worker -- sh -c "ORBITDESK_ENV_PROFILE=deployed APP_ROLE=w
 
 `pnpm install` turns on `.githooks/pre-commit`. The hook copies the staged files out of the Git index into a private folder, scans that copy for this machine's secret values, and removes it, so it checks what the commit will hold and not the working copy. It prints one fixed line and never the match. It needs the store when a profile exists, so commit with `ORBITDESK_SHARED_SECRETS=off` when offline; that scan covers local values only.
 
-The hook resolves the values once and scans for exactly those, including every runtime's secrets, the machine identity and any `.env` inside a package, which core and Prisma read directly. For Prisma's package files it also scans values after `${VAR}` expansion, while keeping literal values for Node callers. It stops the commit if `.env.schema` is missing or declares nothing, or if a local value breaks it. `pnpm exec varlock load --agent` names the value.
+The hook resolves the values once and scans for exactly those, including every runtime's secrets, the machine identity and any `.env` inside a package, which core and Prisma read directly. For Prisma's package files it also scans values after `${VAR}` expansion under both client generation's root environment and the database command's `#db` selection, while keeping literal values for Node callers. It stops the commit if `.env.schema` is missing or declares nothing, or if a local value breaks it. `pnpm exec varlock load --agent` names the value.
 
 Commit from a normal terminal. Inside the credential proxy Varlock only has placeholders, so the hook refuses any commit with staged content, clean or not. It will not fetch real values there, and there is no scan bypass.
 

@@ -53,6 +53,10 @@ railway run --service worker -- sh -c "ORBITDESK_ENV_PROFILE=deployed APP_ROLE=w
 
 `pnpm install` turns on `.githooks/pre-commit`. The hook copies the staged files out of the Git index into a private folder, scans that copy for this machine's secret values, and removes it, so it checks what the commit will hold and not the working copy. It prints one fixed line and never the match. It needs the store when a profile exists, so commit with `ORBITDESK_SHARED_SECRETS=off` when offline; that scan covers local values only.
 
+The hook resolves the values once and scans for exactly those, including every runtime's secrets, the machine identity and any `.env` inside a package, which core and Prisma read directly. It stops the commit if `.env.schema` is missing or declares nothing, or if a local value breaks it. `pnpm exec varlock load --agent` names the value.
+
+Commit from a normal terminal. Inside the credential proxy Varlock only has placeholders, so the hook refuses any commit with staged content, clean or not. It will not fetch real values there, and there is no scan bypass.
+
 A `.env` copied from `.env.example` repeats that file's values, so a commit touching the example fails the scan until your `.env` holds different ones.
 
 The Next build fails if a secret's value reaches `.next/static` or a prerendered page.
@@ -67,5 +71,5 @@ The agent gets a placeholder or nothing for each secret. When it calls a host li
 
 - Same user, same machine: this raises the bar, and only a sandbox makes it a boundary.
 - Strict egress stays off. It would send subscription traffic through TLS interception.
-- A placeholder cannot reach Postgres, so start `pnpm dev`, the worker and `pnpm db:migrate` from a normal terminal beside the agent.
+- A placeholder cannot reach Postgres or vouch for a commit, so start `pnpm dev`, the worker and `pnpm db:migrate`, and commit, from a normal terminal beside the agent.
 - It wraps a terminal launch. A session started by T3 Code or another host app is not wrapped.
